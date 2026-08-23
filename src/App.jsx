@@ -285,6 +285,7 @@ export default function App() {
         {activeTab === 'guardian' && (
           <GuardianManager
             onSelectWeapon={handleSelectWeapon}
+            onSelectArmor={(a) => setSelectedArmor(a)}
             onOpenSettings={() => setIsSettingsOpen(true)}
             authSession={authSession}
             onLogin={handleLogin}

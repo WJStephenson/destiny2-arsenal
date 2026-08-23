@@ -22,9 +22,11 @@ import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../u
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
+import ArmourOptimizer from './ArmourOptimizer';
 
 export default function GuardianManager({ 
   onSelectWeapon, 
+  onSelectArmor,
   onOpenSettings,
   authSession,
   onLogin,
@@ -34,6 +36,7 @@ export default function GuardianManager({
   const [profileData, setProfileData] = useState(null);
   const [selectedCharacterIndex, setSelectedCharacterIndex] = useState(0);
   const [activeSubTab, setActiveSubTab] = useState('weapons'); // 'weapons' | 'armor' | 'inventory' | 'loadouts' | 'vault'
+  const [armorView, setArmorView] = useState('slots'); // 'slots' | 'optimizer'
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
@@ -115,6 +118,7 @@ export default function GuardianManager({
     const loadoutsMap = data.characterLoadouts?.data || {};
     const instances = data.itemComponents?.instances?.data || {};
     const socketsMap = data.itemComponents?.sockets?.data || {};
+    const statsMap = data.itemComponents?.stats?.data || {};
 
     const allHashesToResolve = [];
 
@@ -180,6 +184,35 @@ export default function GuardianManager({
         else if (it.bucketHash === 953998645) detectedSlot = 'Power';
       }
 
+      // Armor 6-Stats extraction
+      const rawStats = it.itemInstanceId && statsMap[it.itemInstanceId]?.stats ? statsMap[it.itemInstanceId].stats : null;
+      let armorStats = null;
+      if (rawStats) {
+        const mob = rawStats[2996146669]?.value || 0;
+        const res = rawStats[392767087]?.value || 0;
+        const rec = rawStats[1943344089]?.value || 0;
+        const dis = rawStats[1735426796]?.value || 0;
+        const int = rawStats[144602215]?.value || 0;
+        const str = rawStats[4244567218]?.value || 0;
+        const total = mob + res + rec + dis + int + str;
+        armorStats = { mobility: mob, resilience: res, recovery: rec, discipline: dis, intellect: int, strength: str, total };
+      } else if (def.statsList && def.statsList.length > 0) {
+        let mob = 0, res = 0, rec = 0, dis = 0, int = 0, str = 0;
+        def.statsList.forEach(s => {
+          const n = s.name?.toLowerCase() || '';
+          if (n.includes('mobility')) mob = s.value;
+          else if (n.includes('resilience')) res = s.value;
+          else if (n.includes('recovery')) rec = s.value;
+          else if (n.includes('discipline')) dis = s.value;
+          else if (n.includes('intellect')) int = s.value;
+          else if (n.includes('strength')) str = s.value;
+        });
+        const total = mob + res + rec + dis + int + str;
+        if (total > 0) {
+          armorStats = { mobility: mob, resilience: res, recovery: rec, discipline: dis, intellect: int, strength: str, total };
+        }
+      }
+
       return {
         itemInstanceId: it.itemInstanceId,
         itemHash: it.itemHash,
@@ -201,6 +234,7 @@ export default function GuardianManager({
         baseItem: def,
         socketColumns: def.socketColumns || [],
         statsList: def.statsList || [],
+        armorStats,
         intrinsic: def.intrinsic || null,
         flavorText: def.flavorText || '',
         sourceString: def.sourceString || '',
@@ -490,11 +524,52 @@ export default function GuardianManager({
     { title: 'Power / Heavy Slot', equipped: powerEquipped, bag: powerBag }
   ];
 
-  const filteredVault = (profileData?.vault || []).filter(item => {
+  // Group armor by 5 slots
+  const bagArmor = inventoryItems.filter(it => it.isArmor);
+
+  const armorSlots = [
+    {
+      key: 'helmet',
+      title: 'Helmet',
+      bucketHash: 3448274439,
+      equipped: equippedArmor.find(it => it.bucketHash === 3448274439 || it.armorSlot?.toLowerCase().includes('helmet') || it.slot?.toLowerCase().includes('helmet') || it.itemTypeDisplayName?.toLowerCase().includes('helmet')),
+      bag: bagArmor.filter(it => it.bucketHash === 3448274439 || it.armorSlot?.toLowerCase().includes('helmet') || it.slot?.toLowerCase().includes('helmet') || it.itemTypeDisplayName?.toLowerCase().includes('helmet'))
+    },
+    {
+      key: 'gauntlets',
+      title: 'Gauntlets / Arms',
+      bucketHash: 3551901077,
+      equipped: equippedArmor.find(it => it.bucketHash === 3551901077 || it.armorSlot?.toLowerCase().includes('gauntlet') || it.slot?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('arms')),
+      bag: bagArmor.filter(it => it.bucketHash === 3551901077 || it.armorSlot?.toLowerCase().includes('gauntlet') || it.slot?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('arms'))
+    },
+    {
+      key: 'chest',
+      title: 'Chest Armour',
+      bucketHash: 1423949262,
+      equipped: equippedArmor.find(it => it.bucketHash === 1423949262 || it.armorSlot?.toLowerCase().includes('chest') || it.slot?.toLowerCase().includes('chest') || it.itemTypeDisplayName?.toLowerCase().includes('chest')),
+      bag: bagArmor.filter(it => it.bucketHash === 1423949262 || it.armorSlot?.toLowerCase().includes('chest') || it.slot?.toLowerCase().includes('chest') || it.itemTypeDisplayName?.toLowerCase().includes('chest'))
+    },
+    {
+      key: 'legs',
+      title: 'Leg Armour',
+      bucketHash: 20886954,
+      equipped: equippedArmor.find(it => it.bucketHash === 20886954 || it.armorSlot?.toLowerCase().includes('leg') || it.slot?.toLowerCase().includes('leg') || it.itemTypeDisplayName?.toLowerCase().includes('leg')),
+      bag: bagArmor.filter(it => it.bucketHash === 20886954 || it.armorSlot?.toLowerCase().includes('leg') || it.slot?.toLowerCase().includes('leg') || it.itemTypeDisplayName?.toLowerCase().includes('leg'))
+    },
+    {
+      key: 'classItem',
+      title: 'Class Item',
+      bucketHash: 1585787867,
+      equipped: equippedArmor.find(it => it.bucketHash === 1585787867 || it.armorSlot?.toLowerCase().includes('class') || it.slot?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('mark') || it.itemTypeDisplayName?.toLowerCase().includes('cloak') || it.itemTypeDisplayName?.toLowerCase().includes('bond')),
+      bag: bagArmor.filter(it => it.bucketHash === 1585787867 || it.armorSlot?.toLowerCase().includes('class') || it.slot?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('mark') || it.itemTypeDisplayName?.toLowerCase().includes('cloak') || it.itemTypeDisplayName?.toLowerCase().includes('bond'))
+    }
+  ];
+
+  const filteredVaultItems = (profileData?.vault || []).filter(item => {
     if (vaultFilter === 'weapons' && !item.isWeapon) return false;
     if (vaultFilter === 'armor' && !item.isArmor) return false;
     if (vaultSearch.trim()) {
-      const q = vaultSearch.toLowerCase();
+      const q = vaultSearch.toLowerCase().trim();
       return item.name.toLowerCase().includes(q) || 
         (item.weaponType && item.weaponType.toLowerCase().includes(q)) ||
         (item.armorSlot && item.armorSlot.toLowerCase().includes(q)) ||
@@ -815,87 +890,247 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 2: EQUIPPED ARMOUR */}
+      {/* Sub-Tab 2: EQUIPPED ARMOUR & STAT OPTIMIZER */}
       {activeSubTab === 'armor' && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-            Equipped Armour on {activeChar?.classType}
-          </h3>
+        <div className="space-y-5">
+          
+          {/* Armour View Switcher */}
+          <div className="flex items-center justify-between flex-wrap gap-2 bg-[#121722] border border-[#20293a] p-2 rounded-xl">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setArmorView('slots')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-heading font-bold tracking-wide transition-all ${
+                  armorView === 'slots' 
+                    ? 'bg-amber-500 text-black shadow-md' 
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Equipped & Bag Slots
+              </button>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {equippedArmor.map((item) => {
-              const tierInfo = getTierInfo(item.tierTypeName);
+              <button
+                onClick={() => setArmorView('optimizer')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-heading font-bold tracking-wide transition-all flex items-center gap-1.5 ${
+                  armorView === 'optimizer' 
+                    ? 'bg-amber-500 text-black shadow-md' 
+                    : 'text-slate-400 hover:text-amber-400'
+                }`}
+              >
+                <Zap className="w-3.5 h-3.5" />
+                <span>⚡ Stat Optimizer (D2 Builder)</span>
+              </button>
+            </div>
 
-              return (
-                <div
-                  key={item.itemInstanceId || item.itemHash}
-                  className="bg-[#121722] border border-[#20293a] hover:border-slate-600 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg"
-                >
-                  <div className={`p-3.5 ${tierInfo.headerBg} border-b border-[#20293a]`}>
-                    <div className="flex items-start gap-3">
-                      
-                      <div className="relative w-14 h-14 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                        {item.icon ? (
-                          <img src={item.icon} alt="" className="w-full h-full object-cover" />
-                        ) : null}
-                      </div>
+            <span className="text-[11px] font-mono text-slate-400 px-2">
+              {activeChar?.classType} Armour
+            </span>
+          </div>
 
-                      <div className="min-w-0 flex-1">
-                        <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
-                          {item.tierTypeName}
-                        </span>
-                        <h4 className="font-bold text-white text-base truncate">{item.name}</h4>
-                        <div className="flex items-center justify-between text-xs mt-0.5">
-                          <span className="text-[11px] text-slate-400 truncate">{item.itemTypeDisplayName || 'Armour'}</span>
+          {/* VIEW 1: 5 SLOTS (Equipped + 6-Stat breakdown + Bag quick swap row) */}
+          {armorView === 'slots' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {armorSlots.map((slotGroup, sIdx) => {
+                const item = slotGroup.equipped;
+                if (!item) return null;
+
+                const tierInfo = getTierInfo(item.tierTypeName);
+
+                return (
+                  <div
+                    key={sIdx}
+                    className="bg-[#121722] border border-[#20293a] rounded-xl overflow-hidden flex flex-col justify-between shadow-xl"
+                  >
+                    <div>
+                      {/* Slot Header */}
+                      <div className="px-4 py-2 bg-[#0b0e14] border-b border-[#20293a] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
+                        <span>{slotGroup.title}</span>
+                        <div className="flex items-center gap-2">
+                          {item.armorStats?.total ? (
+                            <span className="text-[11px] text-slate-300 font-mono">
+                              Total: {item.armorStats.total}
+                            </span>
+                          ) : null}
                           {item.power && (
-                            <span className="text-amber-400 font-mono font-bold">
+                            <span className="text-[11px] text-amber-400 font-mono">
                               ✧ {item.power}
                             </span>
                           )}
                         </div>
                       </div>
 
-                    </div>
-                  </div>
+                      {/* Equipped Armor Main Header */}
+                      <div className={`p-3.5 ${tierInfo.headerBg} border-b border-[#20293a]`}>
+                        <div className="flex items-start gap-3">
+                          
+                          {/* Armor Thumbnail */}
+                          <div 
+                            onClick={() => onSelectArmor?.(item.baseItem || item)}
+                            className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-md"
+                            title="Click for armour details"
+                          >
+                            {item.icon && (
+                              <img src={item.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                            )}
+                            {item.iconWatermark && (
+                              <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
+                            )}
+                          </div>
 
-                  {/* Active Perks / Mods */}
-                  <div className="p-3 space-y-2 flex-1">
-                    {item.perks?.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {item.perks.map((p, pIdx) => {
-                          const pObj = typeof p === 'object' ? p : { name: p };
-                          return (
-                            <LongPressable
-                              key={pIdx}
-                              onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
-                              onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60 hover:border-amber-500/50 cursor-pointer"
+                          {/* Title & Type */}
+                          <div className="min-w-0 flex-1">
+                            <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
+                              {item.tierTypeName}
+                            </span>
+                            <h4 
+                              onClick={() => onSelectArmor?.(item.baseItem || item)}
+                              className="font-bold text-white text-base truncate hover:text-amber-300 cursor-pointer transition-colors"
                             >
-                              {pObj.icon && <img src={pObj.icon} alt="" className="w-3.5 h-3.5 rounded" />}
-                              <span>{pObj.name}</span>
-                            </LongPressable>
-                          );
-                        })}
+                              {item.name}
+                            </h4>
+                            <span className="text-xs text-slate-400 truncate block mt-0.5">{item.itemTypeDisplayName || 'Armour'}</span>
+                          </div>
+
+                        </div>
                       </div>
-                    )}
-                  </div>
 
-                  {/* Actions */}
-                  <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a]">
-                    <button
-                      disabled={actionLoading === item.itemInstanceId}
-                      onClick={() => handleTransferItem(item, true)}
-                      className="w-full py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
-                    >
-                      <Box className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Transfer to Vault</span>
-                    </button>
-                  </div>
+                      {/* 6-Stats Breakdown Grid */}
+                      {item.armorStats && (
+                        <div className="p-3 bg-[#0b0e14] border-b border-[#20293a]/60">
+                          <div className="grid grid-cols-6 gap-1 text-center font-mono">
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] text-sky-400 font-bold">MOB</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.mobility}</div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] text-amber-400 font-bold">RES</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.resilience}</div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] text-emerald-400 font-bold">REC</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.recovery}</div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] text-indigo-400 font-bold">DIS</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.discipline}</div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] text-purple-400 font-bold">INT</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.intellect}</div>
+                            </div>
+                            <div className="space-y-0.5">
+                              <div className="text-[9px] text-rose-400 font-bold">STR</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.strength}</div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
-                </div>
-              );
-            })}
-          </div>
+                      {/* Active Perks / Mods */}
+                      {item.perks?.length > 0 && (
+                        <div className="p-3 space-y-1.5 border-b border-[#20293a]/60">
+                          <div className="flex flex-wrap gap-1.5">
+                            {item.perks.map((p, pIdx) => {
+                              const pObj = typeof p === 'object' ? p : { name: p };
+                              return (
+                                <LongPressable
+                                  key={pIdx}
+                                  onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                                  onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60 hover:border-amber-500/50 cursor-pointer group"
+                                  title={pObj.name}
+                                >
+                                  {pObj.icon && <img src={pObj.icon} alt="" className="w-3.5 h-3.5 rounded" />}
+                                  <span className="group-hover:text-amber-300">{pObj.name}</span>
+                                </LongPressable>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Bag Inventory Quick Swap Row */}
+                      <div className="p-3 bg-[#0e131d] space-y-2">
+                        <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
+                          <span>Bag ({slotGroup.bag.length}) • Tap to Swap</span>
+                          <span className="text-[10px] text-slate-500">Hold for details</span>
+                        </div>
+
+                        {slotGroup.bag.length > 0 ? (
+                          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                            {slotGroup.bag.map((bagItem) => {
+                              const bTier = getTierInfo(bagItem.tierTypeName);
+                              return (
+                                <LongPressable
+                                  key={bagItem.itemInstanceId || bagItem.itemHash}
+                                  onClick={() => handleEquipItem(bagItem.itemInstanceId)}
+                                  onLongPress={() => onSelectArmor?.(bagItem.baseItem || bagItem)}
+                                  className="relative flex-shrink-0 group cursor-pointer"
+                                  title={`${bagItem.name} • Tap to swap, hold for details`}
+                                >
+                                  <div className={`relative w-12 h-12 rounded-lg bg-black/80 border-2 overflow-hidden transition-all group-hover:scale-105 shadow-md ${
+                                    bagItem.tierTypeName === 'Exotic' 
+                                      ? 'border-amber-400' 
+                                      : bagItem.tierTypeName === 'Legendary' 
+                                        ? 'border-purple-500' 
+                                        : 'border-blue-500'
+                                  }`}>
+                                    {bagItem.icon && (
+                                      <img src={bagItem.icon} alt="" className="w-full h-full object-cover" />
+                                    )}
+                                    {bagItem.power && (
+                                      <div className="absolute bottom-0 inset-x-0 bg-black/85 text-[9px] font-mono text-amber-300 text-center font-bold">
+                                        {bagItem.power}
+                                      </div>
+                                    )}
+                                    {bagItem.armorStats?.total ? (
+                                      <div className="absolute top-0 right-0 bg-black/85 px-1 text-[8px] font-mono text-slate-300 rounded-bl">
+                                        {bagItem.armorStats.total}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </LongPressable>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] font-mono text-slate-600 italic py-1">
+                            No other {slotGroup.title} items in character bag
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+
+                    {/* Actions */}
+                    <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a]">
+                      <button
+                        disabled={actionLoading === item.itemInstanceId}
+                        onClick={() => handleTransferItem(item, true)}
+                        className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                      >
+                        <Box className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Transfer Equipped to Vault</span>
+                      </button>
+                    </div>
+
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* VIEW 2: ⚡ STAT OPTIMIZER & LOADOUT BUILDER */}
+          {armorView === 'optimizer' && (
+            <ArmourOptimizer
+              activeChar={activeChar}
+              vault={profileData?.vault || []}
+              onEquipItem={handleEquipItem}
+              onTransferItem={handleTransferItem}
+              onOpenInfo={onOpenInfo}
+              onSelectArmor={onSelectArmor}
+            />
+          )}
+
         </div>
       )}
 
