@@ -14,7 +14,7 @@ import InfoDrawer from './components/InfoDrawer';
 import MobileBottomNav from './components/MobileBottomNav';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import { getSavedWishlists, saveWishlistRoll, removeWishlistRoll } from './utils/destiny-helpers';
-import { initClientManifest, getFiltersMetadata } from './utils/client-manifest';
+import { initClientManifest, getFiltersMetadata, getClientItemByHash } from './utils/client-manifest';
 import { 
   getStoredSettings, 
   getStoredAuthSession, 
@@ -224,6 +224,25 @@ export default function App() {
     return <OAuthCallback onComplete={handleOAuthComplete} />;
   }
 
+  const handleSelectWeapon = (w) => {
+    if (!w) return;
+    const hash = w.itemHash || w.hash || w.id;
+    const richDef = getClientItemByHash(hash);
+    const merged = {
+      ...w,
+      ...(richDef || {}),
+      power: w.power || richDef?.power,
+      perks: w.perks || richDef?.perks || [],
+      socketColumns: (richDef?.socketColumns && richDef.socketColumns.length > 0)
+        ? richDef.socketColumns
+        : (w.socketColumns || []),
+      statsList: (richDef?.statsList && richDef.statsList.length > 0)
+        ? richDef.statsList
+        : (w.statsList || [])
+    };
+    setSelectedWeapon(merged);
+  };
+
   return (
     <div className="min-h-screen bg-[#0b0e14] text-slate-100 flex flex-col font-sans selection:bg-amber-500 selection:text-black">
       
@@ -247,7 +266,7 @@ export default function App() {
         
         {activeTab === 'weapons' && (
           <WeaponFinder
-            onSelectWeapon={(w) => setSelectedWeapon(w)}
+            onSelectWeapon={handleSelectWeapon}
             onAddToCompare={handleAddToCompare}
             compareList={compareList}
             onSaveWishlist={handleSaveWishlist}
@@ -265,7 +284,7 @@ export default function App() {
 
         {activeTab === 'guardian' && (
           <GuardianManager
-            onSelectWeapon={(w) => setSelectedWeapon(w)}
+            onSelectWeapon={handleSelectWeapon}
             onOpenSettings={() => setIsSettingsOpen(true)}
             authSession={authSession}
             onLogin={handleLogin}
@@ -276,7 +295,7 @@ export default function App() {
 
         {activeTab === 'perks' && (
           <PerkEncyclopedia
-            onSelectWeapon={(w) => setSelectedWeapon(w)}
+            onSelectWeapon={handleSelectWeapon}
             onOpenInfo={(item) => setInfoDrawerItem(item)}
           />
         )}
@@ -286,7 +305,7 @@ export default function App() {
             compareList={compareList}
             onRemoveFromCompare={handleRemoveFromCompare}
             onClearCompare={handleClearCompare}
-            onSelectWeapon={(w) => setSelectedWeapon(w)}
+            onSelectWeapon={handleSelectWeapon}
             onOpenInfo={(item) => setInfoDrawerItem(item)}
           />
         )}
@@ -295,7 +314,7 @@ export default function App() {
           <WishlistManager
             wishlists={wishlists}
             onRemoveRoll={handleRemoveWishlist}
-            onSelectWeapon={(w) => setSelectedWeapon(w)}
+            onSelectWeapon={handleSelectWeapon}
             onOpenInfo={(item) => setInfoDrawerItem(item)}
           />
         )}

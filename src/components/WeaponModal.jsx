@@ -269,66 +269,95 @@ export default function WeaponModal({
           )}
 
           {/* Sockets Matrix (Perk Columns with Long Press!) */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
+          {(weapon.socketColumns && weapon.socketColumns.length > 0) ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  Perk & Trait Roll Matrix
+                </h3>
+                <span className="text-xs text-slate-400 font-mono">
+                  Tap to assemble roll • Long press for info
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                {weapon.socketColumns.map((col, cIdx) => (
+                  <div key={cIdx} className="bg-[#0b0e14] border border-[#20293a] rounded-xl p-3 space-y-2">
+                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono border-b border-[#20293a] pb-1 flex justify-between items-center">
+                      <span>{col.type}</span>
+                      <span className="text-[10px] text-slate-600">({col.perks?.length || 0})</span>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                      {(col.perks || []).map((p) => {
+                        const isSelected = selectedPlugs[cIdx]?.hash === p.hash;
+                        return (
+                          <LongPressable
+                            key={p.hash || p.name}
+                            onClick={() => togglePlugSelection(cIdx, p)}
+                            onLongPress={() => onOpenInfo?.({
+                              name: p.name,
+                              category: p.category || 'Perk',
+                              description: p.description,
+                              icon: p.icon,
+                              stats: p.stats,
+                              isEnhanced: p.isEnhanced,
+                              type: 'perk'
+                            })}
+                            className={`flex items-center gap-2 p-2 rounded-lg text-xs font-medium cursor-pointer transition-all w-full ${
+                              isSelected
+                                ? 'bg-amber-500 text-black font-bold ring-1 ring-amber-400 shadow-md shadow-amber-500/20'
+                                : 'bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800'
+                            }`}
+                          >
+                            {p.icon ? (
+                              <img src={p.icon} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />
+                            ) : (
+                              <Sparkles className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                            )}
+                            <span className="truncate flex-1 text-left">{p.name}</span>
+                            {p.isEnhanced && (
+                              <span className="text-[9px] px-1 rounded bg-amber-900/60 text-amber-300 font-mono">
+                                Enhanced
+                              </span>
+                            )}
+                          </LongPressable>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : weapon.perks && weapon.perks.length > 0 ? (
+            <div className="space-y-3">
               <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-400" />
-                Perk & Trait Roll Matrix
+                Active Rolled Perks on Weapon
               </h3>
-              <span className="text-xs text-slate-400 font-mono">
-                Tap to assemble roll • Long press for info
-              </span>
+              <div className="flex flex-wrap gap-2.5">
+                {weapon.perks.map((p, pIdx) => {
+                  const pObj = typeof p === 'object' ? p : { name: p };
+                  return (
+                    <LongPressable
+                      key={pIdx}
+                      onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                      onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                      className="flex items-center gap-2 p-2.5 rounded-xl bg-[#0b0e14] border border-[#20293a] hover:border-amber-400 transition-all cursor-pointer shadow-sm"
+                    >
+                      {pObj.icon ? (
+                        <img src={pObj.icon} alt="" className="w-6 h-6 rounded object-cover" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                      )}
+                      <span className="text-xs font-mono text-slate-200 font-bold">{pObj.name}</span>
+                    </LongPressable>
+                  );
+                })}
+              </div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              {weapon.socketColumns.map((col, cIdx) => (
-                <div key={cIdx} className="bg-[#0b0e14] border border-[#20293a] rounded-xl p-3 space-y-2">
-                  <div className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono border-b border-[#20293a] pb-1 flex justify-between items-center">
-                    <span>{col.type}</span>
-                    <span className="text-[10px] text-slate-600">({col.perks.length})</span>
-                  </div>
-
-                  <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                    {col.perks.map((p) => {
-                      const isSelected = selectedPlugs[cIdx]?.hash === p.hash;
-                      return (
-                        <LongPressable
-                          key={p.hash}
-                          onClick={() => togglePlugSelection(cIdx, p)}
-                          onLongPress={() => onOpenInfo?.({
-                            name: p.name,
-                            category: p.category || 'Perk',
-                            description: p.description,
-                            icon: p.icon,
-                            stats: p.stats,
-                            isEnhanced: p.isEnhanced,
-                            type: 'perk'
-                          })}
-                          className={`flex items-center gap-2 p-2 rounded-lg text-xs font-medium cursor-pointer transition-all w-full ${
-                            isSelected
-                              ? 'bg-amber-500 text-black font-bold ring-1 ring-amber-400 shadow-md shadow-amber-500/20'
-                              : 'bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800'
-                          }`}
-                        >
-                          {p.icon ? (
-                            <img src={p.icon} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />
-                          ) : (
-                            <Sparkles className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                          )}
-                          <span className="truncate flex-1 text-left">{p.name}</span>
-                          {p.isEnhanced && (
-                            <span className="text-[9px] px-1 rounded bg-amber-900/60 text-amber-300 font-mono">
-                              Enhanced
-                            </span>
-                          )}
-                        </LongPressable>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+          ) : null}
 
           {/* Weapon Stats Sheet (Long pressable on any stat bar!) */}
           <div className="space-y-3">
