@@ -161,7 +161,9 @@ app.post('/api/settings', (req, res) => {
 
 // 13. OAuth Auth URL
 app.get('/api/auth/url', (req, res) => {
-  const origin = req.headers.origin || `http://${req.headers.host}`;
+  const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const origin = req.query.origin || req.headers.origin || `${proto}://${host}`;
   const result = bungieAuth.getBungieAuthUrl(origin);
   res.json(result);
 });

@@ -55,6 +55,7 @@ export default function OAuthCallback({ onComplete }) {
       bodyParams.append('code', code);
       bodyParams.append('client_id', settings.clientId);
       bodyParams.append('client_secret', settings.clientSecret);
+      bodyParams.append('redirect_uri', redirectUri);
 
       const headers = {
         'Content-Type': 'application/x-www-form-urlencoded'

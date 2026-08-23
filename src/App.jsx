@@ -116,30 +116,18 @@ export default function App() {
     } catch (e) {}
   };
 
-  const handleLogin = async () => {
-    // 1. Try local Express backend API
-    try {
-      const res = await fetch('/api/auth/url');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.url) {
-          window.location.href = data.url;
-          return;
-        }
-      }
-    } catch (e) {}
-
-    // 2. Direct browser OAuth fallback using saved settings
+  const handleLogin = () => {
     const settings = getStoredSettings();
-    if (settings.clientId) {
-      const redirectUri = `${window.location.origin}/oauth/callback`;
-      const state = Math.random().toString(36).substring(2, 15);
-      const url = `https://www.bungie.net/en/OAuth/Authorize?client_id=${settings.clientId}&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`;
-      window.location.href = url;
-    } else {
+    if (!settings.clientId) {
       setIsSettingsOpen(true);
       showToast('Please configure your Bungie OAuth Client ID in Settings first.', 'warning');
+      return;
     }
+
+    const redirectUri = `${window.location.origin}/oauth/callback`;
+    const state = Math.random().toString(36).substring(2, 15);
+    const authUrl = `https://www.bungie.net/en/OAuth/Authorize?client_id=${encodeURIComponent(settings.clientId)}&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+    window.location.href = authUrl;
   };
 
   const handleLogout = async () => {
