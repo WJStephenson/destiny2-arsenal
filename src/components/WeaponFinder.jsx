@@ -938,18 +938,6 @@ export default function WeaponFinder({
 
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={(e) => copyDim(w, e)}
-                      className={`p-1.5 rounded transition-colors ${
-                        copiedId === w.id 
-                          ? 'bg-emerald-500/20 text-emerald-300' 
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                      title="Copy DIM search query"
-                    >
-                      {copiedId === w.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    </button>
-
-                    <button
                       onClick={(e) => {
                         e.stopPropagation();
                         onAddToCompare(w);

@@ -1,9 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   X, 
   Sparkles, 
-  Copy, 
-  Check, 
   Bookmark, 
   Scale, 
   Hammer, 
@@ -18,7 +16,7 @@ import {
   Award,
   ShieldAlert
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
 import LongPressable from './LongPressable';
 
 export default function WeaponModal({ 
@@ -35,31 +33,6 @@ export default function WeaponModal({
   const damageInfo = getDamageInfo(weapon.damageType);
   const sourceBadge = getSourceCategoryBadge(weapon.sourceCategory);
 
-  const [selectedPlugs, setSelectedPlugs] = useState({});
-  const [copiedDim, setCopiedDim] = useState(false);
-
-  const togglePlugSelection = (colIdx, perk) => {
-    setSelectedPlugs(prev => {
-      const next = { ...prev };
-      if (next[colIdx]?.hash === perk.hash) {
-        delete next[colIdx];
-      } else {
-        next[colIdx] = perk;
-      }
-      return next;
-    });
-  };
-
-  const selectedPerkNames = Object.values(selectedPlugs).map(p => p.name);
-
-  const copyDim = () => {
-    const perksToInclude = selectedPerkNames.length > 0 ? selectedPerkNames : [];
-    const query = generateDimQuery(weapon, perksToInclude);
-    navigator.clipboard.writeText(query);
-    setCopiedDim(true);
-    setTimeout(() => setCopiedDim(false), 2000);
-  };
-
   const handleSaveToWishlist = () => {
     onSaveWishlist({
       id: `wish_${weapon.id || weapon.hash}_${Date.now()}`,
@@ -69,7 +42,7 @@ export default function WeaponModal({
       weaponType: weapon.weaponType,
       damageType: weapon.damageType,
       tierTypeName: weapon.tierTypeName,
-      selectedPerks: selectedPerkNames,
+      selectedPerks: [],
       notes: `Source: ${weapon.sourceString || 'Destiny 2'}`,
       savedAt: new Date().toISOString()
     });
@@ -77,6 +50,13 @@ export default function WeaponModal({
 
   // Check if weapon has active rolled perks from live Guardian inventory
   const livePerks = weapon.perks && weapon.perks.length > 0 ? weapon.perks : [];
+
+  // Separate discrete stats (RPM, Charge Time, Magazine, Zoom, Draw Time) from 0-100 bar stats
+  const discreteStatNames = ['Rounds Per Minute', 'RPM', 'Charge Time', 'Magazine', 'Zoom', 'Draw Time', 'Inventory Size'];
+  const allStats = weapon.statsList || [];
+  
+  const discreteStats = allStats.filter(s => discreteStatNames.includes(s.name));
+  const barStats = allStats.filter(s => !discreteStatNames.includes(s.name));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
@@ -316,7 +296,7 @@ export default function WeaponModal({
                   All Possible Perk Rolls (Armory Matrix)
                 </h3>
                 <span className="text-[11px] text-slate-400 font-mono">
-                  Tap to assemble roll • Hold for details
+                  Tap or hold any perk to inspect
                 </span>
               </div>
 
@@ -329,41 +309,42 @@ export default function WeaponModal({
                     </div>
 
                     <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                      {(col.perks || []).map((p) => {
-                        const isSelected = selectedPlugs[cIdx]?.hash === p.hash;
-                        return (
-                          <LongPressable
-                            key={p.hash || p.name}
-                            onClick={() => togglePlugSelection(cIdx, p)}
-                            onLongPress={() => onOpenInfo?.({
-                              name: p.name,
-                              category: p.category || 'Perk',
-                              description: p.description,
-                              icon: p.icon,
-                              stats: p.stats,
-                              isEnhanced: p.isEnhanced,
-                              type: 'perk'
-                            })}
-                            className={`flex items-center gap-2 p-2 rounded-lg text-xs font-medium cursor-pointer transition-all w-full ${
-                              isSelected
-                                ? 'bg-amber-500 text-black font-bold ring-1 ring-amber-400 shadow-md shadow-amber-500/20'
-                                : 'bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800'
-                            }`}
-                          >
-                            {p.icon ? (
-                              <img src={p.icon} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />
-                            ) : (
-                              <Sparkles className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                            )}
-                            <span className="truncate flex-1 text-left">{p.name}</span>
-                            {p.isEnhanced && (
-                              <span className="text-[9px] px-1 rounded bg-amber-900/60 text-amber-300 font-mono">
-                                Enhanced
-                              </span>
-                            )}
-                          </LongPressable>
-                        );
-                      })}
+                      {(col.perks || []).map((p) => (
+                        <LongPressable
+                          key={p.hash || p.name}
+                          onClick={() => onOpenInfo?.({
+                            name: p.name,
+                            category: p.category || 'Perk',
+                            description: p.description,
+                            icon: p.icon,
+                            stats: p.stats,
+                            isEnhanced: p.isEnhanced,
+                            type: 'perk'
+                          })}
+                          onLongPress={() => onOpenInfo?.({
+                            name: p.name,
+                            category: p.category || 'Perk',
+                            description: p.description,
+                            icon: p.icon,
+                            stats: p.stats,
+                            isEnhanced: p.isEnhanced,
+                            type: 'perk'
+                          })}
+                          className="flex items-center gap-2 p-2 rounded-lg text-xs font-medium cursor-pointer transition-all w-full bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800"
+                        >
+                          {p.icon ? (
+                            <img src={p.icon} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />
+                          ) : (
+                            <Sparkles className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                          )}
+                          <span className="truncate flex-1 text-left">{p.name}</span>
+                          {p.isEnhanced && (
+                            <span className="text-[9px] px-1 rounded bg-amber-900/60 text-amber-300 font-mono">
+                              Enhanced
+                            </span>
+                          )}
+                        </LongPressable>
+                      ))}
                     </div>
                   </div>
                 ))}
@@ -371,96 +352,107 @@ export default function WeaponModal({
             </div>
           )}
 
-          {/* SECTION 4: WEAPON STATS SHEET */}
-          {weapon.statsList && weapon.statsList.length > 0 && (
+          {/* SECTION 4: WEAPON STATISTICS (Clean, Proportional & Never Overlapping) */}
+          {allStats.length > 0 && (
             <div className="space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                 <h3 className="text-xs sm:text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-                  Base Weapon Statistics
+                  Weapon Statistics
                 </h3>
                 <span className="text-[11px] text-slate-500 font-mono">
-                  Hold stat for scaling info
+                  Tap stat for mechanics & scaling info
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-3 bg-[#0b0e14] border border-[#20293a] rounded-xl p-4">
-                {weapon.statsList.map((s) => {
-                  const pct = Math.min(100, Math.max(0, (s.value / (s.max || 100)) * 100));
-                  return (
+              {/* Discrete Numerical Stats Bar (Magazine, RPM, Charge Time, Zoom) */}
+              {discreteStats.length > 0 && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-[#0b0e14] p-3 rounded-xl border border-[#20293a]">
+                  {discreteStats.map((s) => (
                     <LongPressable
                       key={s.hash || s.name}
                       onClick={() => onOpenInfo?.({ name: s.name, type: 'stat' })}
                       onLongPress={() => onOpenInfo?.({ name: s.name, type: 'stat' })}
-                      className="space-y-1 text-xs block cursor-pointer group p-1 rounded hover:bg-slate-900/50"
+                      className="p-2 rounded-lg bg-slate-900/60 hover:bg-slate-800/80 text-center cursor-pointer transition-colors border border-slate-800"
                     >
-                      <div className="flex justify-between items-center font-mono">
-                        <span className="text-slate-400 group-hover:text-amber-300 transition-colors flex items-center gap-1">
-                          {s.name} <Info className="w-3 h-3 opacity-0 group-hover:opacity-60" />
-                        </span>
-                        <span className="text-slate-100 font-bold">{s.value}</span>
-                      </div>
-                      <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full transition-all duration-300"
-                          style={{ width: `${pct}%` }}
-                        />
+                      <div className="text-[10px] font-mono text-slate-400 uppercase truncate">{s.name}</div>
+                      <div className="text-sm sm:text-base font-bold font-mono text-amber-300 mt-0.5">
+                        {s.value} {s.name === 'Charge Time' ? 'ms' : s.name === 'Draw Time' ? 'ms' : ''}
                       </div>
                     </LongPressable>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Scaled Bar Stats (Range, Stability, Handling, Reload, Aim Assist, Airborne, Recoil) */}
+              {barStats.length > 0 && (
+                <div className="space-y-2.5 bg-[#0b0e14] border border-[#20293a] rounded-xl p-4">
+                  {barStats.map((s) => {
+                    const pct = Math.min(100, Math.max(0, s.value));
+                    return (
+                      <LongPressable
+                        key={s.hash || s.name}
+                        onClick={() => onOpenInfo?.({ name: s.name, type: 'stat' })}
+                        onLongPress={() => onOpenInfo?.({ name: s.name, type: 'stat' })}
+                        className="flex items-center justify-between gap-3 text-xs group cursor-pointer hover:bg-slate-900/60 p-1.5 rounded-lg transition-colors"
+                      >
+                        {/* Stat Name */}
+                        <span className="w-32 sm:w-44 text-slate-300 font-mono truncate group-hover:text-amber-300 text-left">
+                          {s.name}
+                        </span>
+
+                        {/* Visual Progress Bar Track */}
+                        <div className="flex-1 h-2 bg-slate-800/90 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full transition-all duration-300 shadow-sm shadow-amber-500/20"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+
+                        {/* Stat Value Number */}
+                        <span className="w-8 text-right font-mono font-bold text-white group-hover:text-amber-300">
+                          {s.value}
+                        </span>
+                      </LongPressable>
+                    );
+                  })}
+                </div>
+              )}
+
             </div>
           )}
 
         </div>
 
         {/* Modal Footer Controls */}
-        <div className="p-4 bg-[#0b0e14] border-t border-[#20293a] flex flex-col sm:flex-row items-center justify-between gap-3 flex-shrink-0">
-          <div className="text-xs text-slate-400 font-mono truncate w-full sm:w-auto text-center sm:text-left">
-            {selectedPerkNames.length > 0 ? (
-              <span className="text-amber-400">
-                Selected: {selectedPerkNames.join(' • ')}
-              </span>
-            ) : (
-              <span>Select perks to copy DIM query or save wishlist</span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-            <button
-              onClick={copyDim}
-              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs transition-colors shadow-sm"
-            >
-              {copiedDim ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedDim ? 'Copied DIM!' : 'Copy DIM Search'}</span>
-            </button>
-
+        <div className="p-4 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
+          <div className="flex items-center gap-2">
             <button
               onClick={() => onAddToCompare(weapon)}
-              className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
                 isCompared 
                   ? 'bg-emerald-500 text-black font-bold border-emerald-400' 
                   : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
               }`}
             >
               <Scale className="w-4 h-4" />
+              <span>{isCompared ? 'Comparing' : 'Compare'}</span>
             </button>
 
             <button
               onClick={handleSaveToWishlist}
-              className="px-3 py-2 rounded-lg bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/40 text-xs font-medium text-pink-300 transition-colors"
-              title="Save to Wishlist"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/40 text-xs font-medium text-pink-300 transition-colors"
             >
               <Bookmark className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={onClose}
-              className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium"
-            >
-              Close
+              <span>Wishlist</span>
             </button>
           </div>
+
+          <button
+            onClick={onClose}
+            className="px-5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium transition-colors"
+          >
+            Close
+          </button>
         </div>
 
       </div>
