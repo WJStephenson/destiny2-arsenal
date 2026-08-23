@@ -5,24 +5,13 @@ import {
   Zap, 
   Sliders, 
   Check, 
-  Flame, 
-  ArrowRight, 
   Layers, 
   Cpu, 
-  Lock, 
-  Unlock, 
   RotateCcw,
   Box,
   ChevronRight,
   TrendingUp,
-  AlertCircle,
-  HelpCircle,
-  Award,
-  Crosshair,
-  Heart,
-  Activity,
-  Bomb,
-  Swords
+  AlertCircle
 } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
 import LongPressable from './LongPressable';
@@ -35,7 +24,7 @@ export default function ArmourOptimizer({
   onOpenInfo,
   onSelectArmor
 }) {
-  // Target Stat Points (0 to 200 Scale in the new system)
+  // Target Stat Points (0 to 200 Scale)
   const [targetStats, setTargetStats] = useState({
     weapons: 30,
     health: 100,
@@ -45,119 +34,43 @@ export default function ArmourOptimizer({
     melee: 30
   });
 
-  // Subclass Fragment Stat Modifiers (-20 to +40)
-  const [fragmentBonus, setFragmentBonus] = useState({
-    weapons: 0,
-    health: 10,
-    classAbility: 0,
-    grenade: 0,
-    superAbility: 0,
-    melee: 0
-  });
-
   const [assumeMasterwork, setAssumeMasterwork] = useState(true);
   const [assumeArtifice, setAssumeArtifice] = useState(false);
-  const [selectedExoticHash, setSelectedExoticHash] = useState('any'); // 'any' | 'none' | itemHash (number)
-  const [selectedArchetype, setSelectedArchetype] = useState('any'); // 'any' | 'Paragon' | 'Grenadier' | 'Specialist' | 'Brawler' | 'Bulwark' | 'Gunner'
-  const [selectedSetFilter, setSelectedSetFilter] = useState('any'); // 'any' | 'artifice' | 'iron_banner' | 'raid' | 'moments_of_triumph'
-  const [showSandboxGuide, setShowSandboxGuide] = useState(false);
+  const [selectedExoticHash, setSelectedExoticHash] = useState('any');
+  const [selectedSetFilter, setSelectedSetFilter] = useState('any');
   const [isBuilding, setIsBuilding] = useState(false);
   const [buildingStatus, setBuildingStatus] = useState(null);
 
-  // New Destiny 2 Stat System (Frontiers / Armor System)
+  // 6 Frontiers Stats
   const statMeta = [
-    { 
-      key: 'weapons', 
-      label: 'Weapons', 
-      short: 'WEAP', 
-      color: 'text-sky-400', 
-      bg: 'bg-sky-500/20', 
-      border: 'border-sky-500/40', 
-      desc: 'Increases weapon handling, reload speed, and Special/Heavy ammo drop frequency. (101-200: Bonus ammo brick size & handling perks)' 
-    },
-    { 
-      key: 'health', 
-      label: 'Health', 
-      short: 'HLTH', 
-      color: 'text-emerald-400', 
-      bg: 'bg-emerald-500/20', 
-      border: 'border-emerald-500/40', 
-      desc: 'Increases maximum shield health & reduces health regeneration start delay. (101-200: Overshield resilience & rapid regen)' 
-    },
-    { 
-      key: 'classAbility', 
-      label: 'Class', 
-      short: 'CLAS', 
-      color: 'text-amber-400', 
-      bg: 'bg-amber-500/20', 
-      border: 'border-amber-500/40', 
-      desc: 'Reduces Class Ability cooldown (Hunter Dodge, Titan Barricade/Thruster, Warlock Rift). (101-200: Double class charge potential)' 
-    },
-    { 
-      key: 'grenade', 
-      label: 'Grenade', 
-      short: 'GREN', 
-      color: 'text-indigo-400', 
-      bg: 'bg-indigo-500/20', 
-      border: 'border-indigo-500/40', 
-      desc: 'Accelerates Grenade ability recharge. (101-200: Grants a 2nd Grenade charge & empowered explosion radius)' 
-    },
-    { 
-      key: 'superAbility', 
-      label: 'Super', 
-      short: 'SUPR', 
-      color: 'text-purple-400', 
-      bg: 'bg-purple-500/20', 
-      border: 'border-purple-500/40', 
-      desc: 'Accelerates Super generation from combat & passive time. (101-200: Bonus Super damage & faster orb generation)' 
-    },
-    { 
-      key: 'melee', 
-      label: 'Melee', 
-      short: 'MELE', 
-      color: 'text-rose-400', 
-      bg: 'bg-rose-500/20', 
-      border: 'border-rose-500/40', 
-      desc: 'Accelerates Powered Melee ability recharge. (101-200: Grants a 2nd Melee charge & empowered melee damage)' 
-    }
-  ];
-
-  // Stat Archetypes
-  const archetypes = [
-    { name: 'any', label: '🌐 Any Stat Archetype', desc: 'Search all gear combinations' },
-    { name: 'Grenadier', label: '💣 Grenadier (Grenade / Super)', desc: 'Primary Grenade, Secondary Super' },
-    { name: 'Paragon', label: '🌟 Paragon (Super / Melee)', desc: 'Primary Super, Secondary Melee' },
-    { name: 'Specialist', label: '⚡ Specialist (Class / Weapons)', desc: 'Primary Class, Secondary Weapons' },
-    { name: 'Brawler', label: '💥 Brawler (Melee / Health)', desc: 'Primary Melee, Secondary Health' },
-    { name: 'Bulwark', label: '🛡️ Bulwark (Health / Class)', desc: 'Primary Health, Secondary Class' },
-    { name: 'Gunner', label: '🔫 Gunner (Weapons / Grenade)', desc: 'Primary Weapons, Secondary Grenade' }
+    { key: 'weapons', label: 'Weapons', short: 'WEAP' },
+    { key: 'health', label: 'Health', short: 'HLTH' },
+    { key: 'classAbility', label: 'Class', short: 'CLAS' },
+    { key: 'grenade', label: 'Grenade', short: 'GREN' },
+    { key: 'superAbility', label: 'Super', short: 'SUPR' },
+    { key: 'melee', label: 'Melee', short: 'MELE' }
   ];
 
   // Presets
   const presets = [
     {
-      name: '💣 Double Grenade & Health',
-      desc: 'Grenadier Archetype (100+ Grenade / 100 Health / 80 Super)',
+      name: 'Double Grenade & Health',
       stats: { weapons: 30, health: 100, classAbility: 60, grenade: 120, superAbility: 80, melee: 20 }
     },
     {
-      name: '💥 Double Melee & Brawler',
-      desc: 'Brawler Archetype (100+ Melee / 100 Health / 80 Class)',
+      name: 'Double Melee & Brawler',
       stats: { weapons: 20, health: 100, classAbility: 80, grenade: 30, superAbility: 40, melee: 120 }
     },
     {
-      name: '🌟 Super Burst & Gunner',
-      desc: 'Paragon / Gunner (100+ Super / 100 Weapons / 80 Grenade)',
+      name: 'Super & Weapons Gunner',
       stats: { weapons: 100, health: 80, classAbility: 40, grenade: 80, superAbility: 110, melee: 30 }
     },
     {
-      name: '🛡️ Max Health & Class Tank',
-      desc: 'Bulwark Archetype (120+ Health / 100 Class / 60 Weapons)',
+      name: 'Max Health Tank',
       stats: { weapons: 60, health: 120, classAbility: 100, grenade: 50, superAbility: 40, melee: 20 }
     }
   ];
 
-  // Helper to extract clean armor slot name
   const getArmorSlotName = (item) => {
     if (item.bucketHash === 3448274439 || item.armorSlot?.toLowerCase().includes('helmet') || item.slot?.toLowerCase().includes('helmet')) return 'helmet';
     if (item.bucketHash === 3551901077 || item.armorSlot?.toLowerCase().includes('gauntlet') || item.slot?.toLowerCase().includes('gauntlet') || item.itemTypeDisplayName?.toLowerCase().includes('gauntlet') || item.itemTypeDisplayName?.toLowerCase().includes('arms')) return 'gauntlets';
@@ -167,7 +80,6 @@ export default function ArmourOptimizer({
     return null;
   };
 
-  // Helper to get normalized armor stats from an item
   const getItemStats = (item) => {
     if (item.armorStats && typeof item.armorStats === 'object') {
       return {
@@ -203,7 +115,6 @@ export default function ArmourOptimizer({
     };
   };
 
-  // Collect all owned armor for active character class
   const allOwnedArmor = useMemo(() => {
     if (!activeChar) return [];
     const charClass = activeChar.classType;
@@ -247,7 +158,7 @@ export default function ArmourOptimizer({
     return Array.from(map.values());
   }, [allOwnedArmor]);
 
-  // Optimization Calculation
+  // Optimization calculation
   const calculatedBuilds = useMemo(() => {
     if (allOwnedArmor.length === 0) return [];
 
@@ -276,11 +187,11 @@ export default function ArmourOptimizer({
     }];
 
     const results = [];
-    const topH = helmets.slice(0, 14);
-    const topA = arms.slice(0, 14);
-    const topC = chests.slice(0, 14);
-    const topL = legs.slice(0, 14);
-    const topCI = dummyClass.slice(0, 4);
+    const topH = helmets.slice(0, 12);
+    const topA = arms.slice(0, 12);
+    const topC = chests.slice(0, 12);
+    const topL = legs.slice(0, 12);
+    const topCI = dummyClass.slice(0, 3);
 
     const targetW = targetStats.weapons || 0;
     const targetH = targetStats.health || 0;
@@ -306,15 +217,13 @@ export default function ArmourOptimizer({
                 if (!hasSelectedExotic) continue;
               }
 
-              // Base stats sum + Masterwork bonus + Fragment bonus
-              const rawW = h.stats.weapons + a.stats.weapons + c.stats.weapons + l.stats.weapons + ci.stats.weapons + mwBonus + (fragmentBonus.weapons || 0);
-              const rawH = h.stats.health + a.stats.health + c.stats.health + l.stats.health + ci.stats.health + mwBonus + (fragmentBonus.health || 0);
-              const rawC = h.stats.classAbility + a.stats.classAbility + c.stats.classAbility + l.stats.classAbility + ci.stats.classAbility + mwBonus + (fragmentBonus.classAbility || 0);
-              const rawG = h.stats.grenade + a.stats.grenade + c.stats.grenade + l.stats.grenade + ci.stats.grenade + mwBonus + (fragmentBonus.grenade || 0);
-              const rawS = h.stats.superAbility + a.stats.superAbility + c.stats.superAbility + l.stats.superAbility + ci.stats.superAbility + mwBonus + (fragmentBonus.superAbility || 0);
-              const rawM = h.stats.melee + a.stats.melee + c.stats.melee + l.stats.melee + ci.stats.melee + mwBonus + (fragmentBonus.melee || 0);
+              const rawW = h.stats.weapons + a.stats.weapons + c.stats.weapons + l.stats.weapons + ci.stats.weapons + mwBonus;
+              const rawH = h.stats.health + a.stats.health + c.stats.health + l.stats.health + ci.stats.health + mwBonus;
+              const rawC = h.stats.classAbility + a.stats.classAbility + c.stats.classAbility + l.stats.classAbility + ci.stats.classAbility + mwBonus;
+              const rawG = h.stats.grenade + a.stats.grenade + c.stats.grenade + l.stats.grenade + ci.stats.grenade + mwBonus;
+              const rawS = h.stats.superAbility + a.stats.superAbility + c.stats.superAbility + l.stats.superAbility + ci.stats.superAbility + mwBonus;
+              const rawM = h.stats.melee + a.stats.melee + c.stats.melee + l.stats.melee + ci.stats.melee + mwBonus;
 
-              // Deficits
               const defW = Math.max(0, targetW - rawW);
               const defH = Math.max(0, targetH - rawH);
               const defC = Math.max(0, targetC - rawC);
@@ -355,7 +264,7 @@ export default function ArmourOptimizer({
               const applyArtifice = (deficit, statName, shortName) => {
                 let rem = deficit;
                 while (rem > 0 && artificeAssigned < totalArtificeSlots) {
-                  artificeMods.push({ stat: statName, short: shortName, value: 3, label: `+3 ${statName} (Artifice)` });
+                  artificeMods.push({ stat: statName, short: shortName, value: 3, label: `+3 ${statName}` });
                   rem = Math.max(0, rem - 3);
                   artificeAssigned++;
                 }
@@ -387,14 +296,8 @@ export default function ArmourOptimizer({
               const totalStatPoints = finalW + finalH + finalC + finalG + finalS + finalM;
 
               const isPerfectMatch = remW === 0 && remH === 0 && remC === 0 && remG === 0 && remS === 0 && remM === 0 &&
-                finalW >= targetW &&
-                finalH >= targetH &&
-                finalC >= targetC &&
-                finalG >= targetG &&
-                finalS >= targetS &&
-                finalM >= targetM;
+                finalW >= targetW && finalH >= targetH && finalC >= targetC && finalG >= targetG && finalS >= targetS && finalM >= targetM;
 
-              // Overcharged stats count (stats >= 100)
               const overchargedCount = [finalW, finalH, finalC, finalG, finalS, finalM].filter(v => v >= 100).length;
 
               results.push({
@@ -425,8 +328,8 @@ export default function ArmourOptimizer({
       return b.totalStatPoints - a.totalStatPoints;
     });
 
-    return results.slice(0, 15);
-  }, [allOwnedArmor, targetStats, fragmentBonus, assumeMasterwork, assumeArtifice, selectedExoticHash, selectedSetFilter, activeChar]);
+    return results.slice(0, 10);
+  }, [allOwnedArmor, targetStats, assumeMasterwork, assumeArtifice, selectedExoticHash, selectedSetFilter, activeChar]);
 
   const handleApplyPreset = (preset) => {
     setTargetStats(preset.stats);
@@ -440,459 +343,268 @@ export default function ArmourOptimizer({
     });
   };
 
-  const handleFragmentChange = (statKey, val) => {
-    setFragmentBonus(prev => ({
-      ...prev,
-      [statKey]: parseInt(val || 0, 10)
-    }));
-  };
-
   const handleEquipBuild = async (build) => {
     if (!build || isBuilding) return;
     setIsBuilding(true);
-    setBuildingStatus('Equipping full armour set on Guardian...');
+    setBuildingStatus('Equipping build on Guardian...');
 
     try {
       for (const piece of build.pieces) {
         if (!piece.itemInstanceId) continue;
-
         if (piece.location === 'vault') {
-          setBuildingStatus(`Transferring ${piece.name} from Vault...`);
           await onTransferItem?.(piece, false);
           await new Promise(r => setTimeout(r, 600));
         }
-
-        setBuildingStatus(`Equipping ${piece.name}...`);
         await onEquipItem?.(piece.itemInstanceId);
         await new Promise(r => setTimeout(r, 400));
       }
-
-      setBuildingStatus('⚡ Full Armour Build Equipped Successfully!');
+      setBuildingStatus('Full Armour Build Equipped!');
     } catch (err) {
       setBuildingStatus('Error equipping build pieces');
     } finally {
       setIsBuilding(false);
-      setTimeout(() => setBuildingStatus(null), 3500);
+      setTimeout(() => setBuildingStatus(null), 3000);
     }
   };
 
   return (
-    <div className="space-y-6 animate-fadeIn">
+    <div className="space-y-4 animate-fadeIn">
       
-      {/* Top Banner & Sandbox Features */}
-      <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-[#121722] to-indigo-500/15 border border-amber-500/30 shadow-xl space-y-3">
+      {/* Clean Header & Options */}
+      <div className="bg-[#121722] border border-[#1e2638] rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2.5">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
-              <Cpu className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white font-heading tracking-wide">
-                  Armour Stat Optimizer & Loadout Builder
-                </h2>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold uppercase">
-                  Frontiers 200 Stat System
-                </span>
-              </div>
-              <p className="text-xs text-slate-400">
-                Cross-references {allOwnedArmor.length} armour pieces across your {activeChar?.classType} (Equipped, Bag & Vault) across the 6 new stats (0–200 Scale)
-              </p>
-            </div>
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-white font-heading tracking-wide">
+              Armour Stat Optimizer
+            </h2>
+            <p className="text-xs text-slate-400 font-mono">
+              {allOwnedArmor.length} pieces scanned for {activeChar?.classType}
+            </p>
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            <label className="flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-black/50 px-2.5 py-1.5 rounded-lg border border-slate-800 cursor-pointer hover:border-slate-700">
+          <div className="flex items-center gap-2">
+            <label className="flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-[#0b0e14] px-2.5 py-1 rounded-lg border border-[#1e2638] cursor-pointer hover:border-slate-600">
               <input
                 type="checkbox"
                 checked={assumeMasterwork}
                 onChange={(e) => setAssumeMasterwork(e.target.checked)}
                 className="accent-amber-500 w-3.5 h-3.5 rounded cursor-pointer"
               />
-              <span>Masterwork (+2 all)</span>
+              <span>Masterwork (+2)</span>
             </label>
 
-            <label className="flex items-center gap-1.5 text-xs font-mono text-indigo-300 bg-indigo-950/40 px-2.5 py-1.5 rounded-lg border border-indigo-500/30 cursor-pointer hover:border-indigo-500/50">
+            <label className="flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-[#0b0e14] px-2.5 py-1 rounded-lg border border-[#1e2638] cursor-pointer hover:border-slate-600">
               <input
                 type="checkbox"
                 checked={assumeArtifice}
                 onChange={(e) => setAssumeArtifice(e.target.checked)}
-                className="accent-indigo-500 w-3.5 h-3.5 rounded cursor-pointer"
+                className="accent-amber-500 w-3.5 h-3.5 rounded cursor-pointer"
               />
-              <span>+3 Artifice Slots</span>
+              <span>Artifice (+3)</span>
             </label>
+          </div>
+        </div>
 
+        {/* Quick Presets Carousel */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1 border-t border-[#1e2638]">
+          <span className="text-[11px] font-mono text-slate-500 whitespace-nowrap mr-1">Presets:</span>
+          {presets.map((pr, idx) => (
             <button
-              onClick={() => setShowSandboxGuide(!showSandboxGuide)}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-mono text-slate-300 transition-colors"
+              key={idx}
+              onClick={() => handleApplyPreset(pr)}
+              className="px-2.5 py-1 rounded-lg bg-[#0b0e14] hover:bg-slate-800 border border-[#1e2638] hover:border-amber-500/40 text-slate-300 hover:text-white text-xs font-mono whitespace-nowrap transition-colors"
             >
-              <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
-              <span>Stat Benefits (0–200)</span>
+              {pr.name}
             </button>
-          </div>
-        </div>
-
-        {/* Current Sandbox Scaling Sheet */}
-        {showSandboxGuide && (
-          <div className="p-3.5 rounded-xl bg-[#0b0e14] border border-amber-500/30 space-y-2 animate-fadeIn">
-            <div className="flex items-center justify-between">
-              <h4 className="text-xs font-bold text-amber-300 font-heading uppercase tracking-wider">
-                Destiny 2 Frontiers New Stat System (0 to 200 Scale & Overcharge)
-              </h4>
-              <button onClick={() => setShowSandboxGuide(false)} className="text-slate-400 hover:text-white text-xs">✕</button>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-xs font-mono">
-              {statMeta.map(st => (
-                <div key={st.key} className="p-2 rounded-lg bg-slate-900/80 border border-slate-800 space-y-0.5">
-                  <span className={`font-bold ${st.color}`}>{st.short} • {st.label}</span>
-                  <p className="text-[11px] text-slate-300 leading-relaxed">{st.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Quick Presets Row */}
-        <div className="pt-2 border-t border-white/5">
-          <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block mb-2">
-            Quick Meta Presets (Overcharge 100+):
-          </span>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {presets.map((pr, idx) => (
-              <button
-                key={idx}
-                onClick={() => handleApplyPreset(pr)}
-                className="p-2 rounded-xl bg-[#0b0e14]/90 hover:bg-slate-800 border border-slate-800 hover:border-amber-500/50 text-left transition-all group"
-              >
-                <div className="text-xs font-bold text-slate-200 group-hover:text-amber-300 truncate font-heading">
-                  {pr.name}
-                </div>
-                <div className="text-[10px] text-slate-400 truncate mt-0.5">{pr.desc}</div>
-              </button>
-            ))}
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Configuration Matrix: Target Stats & Exotic Lock */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        
-        {/* Left: 6 Target Stat Steppers (0 to 200 Scale) */}
-        <div className="lg:col-span-2 bg-[#121722] border border-[#20293a] rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg">
-          <div className="flex items-center justify-between border-b border-[#20293a] pb-3">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider font-heading flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-amber-400" />
-              Target Stat Distribution (0–200 Scale)
-            </h3>
-            <span className="text-xs font-mono text-amber-400 font-bold">
-              Target Total: {Object.values(targetStats).reduce((a, b) => a + b, 0)} Points
-            </span>
-          </div>
+      {/* 6 Target Stat Steppers Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        {statMeta.map(st => {
+          const currentVal = targetStats[st.key] || 0;
+          return (
+            <div 
+              key={st.key}
+              className="p-2.5 rounded-xl bg-[#121722] border border-[#1e2638] space-y-1.5"
+            >
+              <div className="flex items-center justify-between text-xs font-mono">
+                <span className="font-bold text-slate-300">{st.short}</span>
+                <span className="text-white font-bold">{currentVal}</span>
+              </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {statMeta.map(st => {
-              const currentVal = targetStats[st.key] || 0;
-              const isOvercharged = currentVal >= 100;
-              return (
-                <div 
-                  key={st.key}
-                  className="p-3 rounded-xl bg-[#0b0e14] border border-[#20293a] flex items-center justify-between gap-2"
+              <div className="flex items-center justify-between gap-1 bg-[#0b0e14] border border-[#1e2638] rounded-lg p-0.5">
+                <button
+                  onClick={() => handleStatChange(st.key, -10)}
+                  disabled={currentVal <= 0}
+                  className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center text-xs disabled:opacity-30"
                 >
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-xs font-bold font-mono ${st.color}`}>
-                        {st.short}
-                      </span>
-                      <span className="text-xs text-slate-300 font-medium">
-                        {st.label}
-                      </span>
-                      {isOvercharged && (
-                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold">
-                          ⚡ 100+
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] font-mono text-slate-500 mt-0.5">
-                      Target: {currentVal} / 200
-                    </div>
-                  </div>
-
-                  {/* Stepper Buttons (in steps of 10) */}
-                  <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-1">
-                    <button
-                      onClick={() => handleStatChange(st.key, -10)}
-                      disabled={currentVal <= 0}
-                      className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed text-xs"
-                    >
-                      -10
-                    </button>
-                    <span className="w-10 text-center font-mono font-bold text-sm text-white">
-                      {currentVal}
-                    </span>
-                    <button
-                      onClick={() => handleStatChange(st.key, 10)}
-                      disabled={currentVal >= 200}
-                      className="w-7 h-7 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed text-xs"
-                    >
-                      +10
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Subclass Fragment Stat Tuning */}
-          <div className="pt-2 border-t border-[#20293a]">
-            <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block mb-1.5">
-              Subclass Fragment Stat Tuning:
-            </span>
-            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-              {statMeta.map(st => (
-                <div key={st.key} className="space-y-0.5">
-                  <span className={`text-[10px] font-mono font-bold ${st.color}`}>{st.short}</span>
-                  <select
-                    value={fragmentBonus[st.key] || 0}
-                    onChange={(e) => handleFragmentChange(st.key, e.target.value)}
-                    className="w-full bg-[#0b0e14] border border-slate-700 rounded-lg p-1 text-[11px] font-mono text-slate-200 text-center"
-                  >
-                    <option value="-20">-20</option>
-                    <option value="-10">-10</option>
-                    <option value="0">+0</option>
-                    <option value="10">+10</option>
-                    <option value="20">+20</option>
-                    <option value="30">+30</option>
-                  </select>
-                </div>
-              ))}
+                  -
+                </button>
+                <span className="text-[10px] font-mono text-slate-400">
+                  {currentVal >= 100 ? '⚡ 100+' : `${currentVal}`}
+                </span>
+                <button
+                  onClick={() => handleStatChange(st.key, 10)}
+                  disabled={currentVal >= 200}
+                  className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center text-xs disabled:opacity-30"
+                >
+                  +
+                </button>
+              </div>
             </div>
-          </div>
-
-        </div>
-
-        {/* Right: Exotic Armor Selection & Set Filter */}
-        <div className="bg-[#121722] border border-[#20293a] rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg flex flex-col justify-between">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between border-b border-[#20293a] pb-3">
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider font-heading flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                Exotic & Set Filter
-              </h3>
-              <span className="text-xs font-mono text-slate-400">
-                {availableExotics.length} Exotics
-              </span>
-            </div>
-
-            {/* Exotic Picker */}
-            <div className="space-y-1.5">
-              <label className="text-xs text-slate-400 font-mono block">Lock Specific Exotic:</label>
-              <select
-                value={selectedExoticHash}
-                onChange={(e) => setSelectedExoticHash(e.target.value)}
-                className="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-2.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
-              >
-                <option value="any">✨ Any Exotic / Best Available</option>
-                <option value="none">🛡️ No Exotic (Legendaries Only)</option>
-                {availableExotics.map(ex => (
-                  <option key={ex.itemHash || ex.id} value={ex.itemHash || ex.id}>
-                    🟡 {ex.name} ({ex.itemTypeDisplayName || ex.slotType})
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Set Filter */}
-            <div className="space-y-1.5 pt-1">
-              <label className="text-xs text-slate-400 font-mono block">Armour Set Preference:</label>
-              <select
-                value={selectedSetFilter}
-                onChange={(e) => setSelectedSetFilter(e.target.value)}
-                className="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-2.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
-              >
-                <option value="any">🌐 Any Armour Sets (Highest Stats)</option>
-                <option value="artifice">💠 Prioritize Artifice Dungeon Sets</option>
-                <option value="iron_banner">⚔️ Prioritize Iron Banner Sets (Iron Lord's Pride)</option>
-                <option value="raid">🏆 Prioritize Raid / Dungeon Sets</option>
-                <option value="moments_of_triumph">🌟 Prioritize Moments of Triumph Sets</option>
-              </select>
-            </div>
-
-            <p className="text-[11px] text-slate-400 leading-relaxed bg-[#0b0e14] p-3 rounded-xl border border-slate-800">
-              Calculates combinations across your {activeChar?.classType}'s gear, solves optimal +10/+5 mods, factors in Masterwork bumps, and arranges 1-tap equips.
-            </p>
-          </div>
-
-          <div className="text-xs font-mono text-amber-400 pt-2 flex items-center gap-1.5">
-            <Check className="w-4 h-4" />
-            <span>{calculatedBuilds.length} Optimized Sets Found</span>
-          </div>
-        </div>
-
+          );
+        })}
       </div>
 
-      {/* Building Status Notification */}
+      {/* Exotic & Set Filter Row */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-[#121722] border border-[#1e2638] rounded-2xl p-3">
+        <div className="space-y-1">
+          <label className="text-[11px] font-mono text-slate-400 block">Lock Exotic:</label>
+          <select
+            value={selectedExoticHash}
+            onChange={(e) => setSelectedExoticHash(e.target.value)}
+            className="w-full bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
+          >
+            <option value="any">✨ Any Exotic (Best Stats)</option>
+            <option value="none">🛡️ No Exotic (Legendaries Only)</option>
+            {availableExotics.map(ex => (
+              <option key={ex.itemHash || ex.id} value={ex.itemHash || ex.id}>
+                {ex.name} ({ex.itemTypeDisplayName || ex.slotType})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-1">
+          <label className="text-[11px] font-mono text-slate-400 block">Armour Set Preference:</label>
+          <select
+            value={selectedSetFilter}
+            onChange={(e) => setSelectedSetFilter(e.target.value)}
+            className="w-full bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
+          >
+            <option value="any">🌐 Any Sets (Highest Stats)</option>
+            <option value="artifice">💠 Artifice Sets</option>
+            <option value="iron_banner">⚔️ Iron Banner Sets</option>
+            <option value="raid">🏆 Raid & Dungeon Sets</option>
+            <option value="moments_of_triumph">🌟 Moments of Triumph Sets</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Status Banner */}
       {buildingStatus && (
-        <div className="p-3.5 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-300 text-xs font-mono font-bold flex items-center gap-2 animate-fadeIn shadow-lg">
+        <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono font-medium flex items-center gap-2">
           <Zap className="w-4 h-4 text-amber-400 animate-spin" />
           <span>{buildingStatus}</span>
         </div>
       )}
 
-      {/* Generated Builds List */}
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-amber-400" />
-            Optimized Armour Set Combinations ({calculatedBuilds.length})
+      {/* Optimized Builds List */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider font-heading">
+            Optimized Builds ({calculatedBuilds.length})
           </h3>
-          <span className="text-xs text-slate-400 font-mono">
-            Ranked by target match & 100+ overcharge count
-          </span>
         </div>
 
         {calculatedBuilds.length === 0 ? (
-          <div className="p-8 rounded-2xl bg-[#121722] border border-[#20293a] text-center space-y-2">
-            <AlertCircle className="w-8 h-8 text-amber-400 mx-auto opacity-60" />
-            <h4 className="text-base font-bold text-white font-heading">No Valid Builds Found</h4>
-            <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Try reducing target stat requirements or changing the Exotic / Set filter.
+          <div className="p-8 rounded-2xl bg-[#121722] border border-[#1e2638] text-center space-y-1.5">
+            <AlertCircle className="w-6 h-6 text-slate-500 mx-auto" />
+            <h4 className="text-sm font-bold text-slate-300 font-heading">No Valid Builds Found</h4>
+            <p className="text-xs text-slate-500">
+              Try reducing target stat requirements or setting Exotic to "Any Exotic".
             </p>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="space-y-3">
             {calculatedBuilds.map((build, bIdx) => (
               <div
                 key={bIdx}
-                className={`bg-[#121722] border rounded-2xl p-4 sm:p-5 space-y-4 shadow-xl transition-all ${
+                className={`bg-[#121722] border rounded-2xl p-3.5 space-y-3 shadow-md ${
                   build.isPerfectMatch 
-                    ? 'border-amber-500/60 bg-gradient-to-r from-amber-500/5 via-[#121722] to-amber-500/5' 
-                    : 'border-[#20293a] hover:border-slate-700'
+                    ? 'border-amber-500/40' 
+                    : 'border-[#1e2638]'
                 }`}
               >
-                {/* Build Header: Total Stat Points Badge + 6 Stat Breakdown */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-[#20293a] pb-3">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <span className="px-3 py-1 rounded-xl bg-amber-500 text-black font-heading font-bold text-sm tracking-wider shadow-md shadow-amber-500/20">
-                      {build.totalStatPoints} Total Stat Points
+                {/* Build Header */}
+                <div className="flex items-center justify-between gap-2 flex-wrap border-b border-[#1e2638] pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-black font-heading font-bold text-xs tracking-wider">
+                      {build.totalStatPoints} Points
                     </span>
                     {build.isPerfectMatch && (
-                      <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" /> 100% Target Match
-                      </span>
-                    )}
-                    {build.overchargedCount > 0 && (
-                      <span className="px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-xs font-mono font-bold">
-                        ⚡ {build.overchargedCount} Overcharged (100+)
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-mono font-bold flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Target Met
                       </span>
                     )}
                   </div>
 
-                  {/* 6 Final Stat Badges */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {statMeta.map(st => {
-                      const val = build.stats[st.key] || 0;
-                      const isOver = val >= 100;
-                      return (
-                        <span
-                          key={st.key}
-                          className={`text-xs font-mono px-2 py-0.5 rounded-md font-bold ${st.bg} ${st.color} border ${st.border} ${
-                            isOver ? 'ring-1 ring-amber-400 shadow-sm' : ''
-                          }`}
-                        >
-                          {st.short} {val}
-                        </span>
-                      );
-                    })}
+                  {/* 6 Stats Pills */}
+                  <div className="flex items-center gap-1 flex-wrap text-[10px] font-mono">
+                    {statMeta.map(st => (
+                      <span
+                        key={st.key}
+                        className={`px-1.5 py-0.2 rounded bg-[#0b0e14] border border-slate-800 ${
+                          build.stats[st.key] >= 100 ? 'text-amber-400 font-bold border-amber-500/30' : 'text-slate-300'
+                        }`}
+                      >
+                        {st.short} {build.stats[st.key]}
+                      </span>
+                    ))}
                   </div>
                 </div>
 
                 {/* 5 Armor Pieces Row */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2.5">
+                <div className="grid grid-cols-5 gap-2">
                   {build.pieces.map((piece, pIdx) => {
                     const tier = getTierInfo(piece.tierTypeName);
                     return (
                       <div
                         key={pIdx}
                         onClick={() => onSelectArmor?.(piece)}
-                        className="p-2.5 rounded-xl bg-[#0b0e14] border border-slate-800 hover:border-amber-400 transition-all cursor-pointer space-y-2 group shadow-sm"
+                        className="p-1.5 rounded-xl bg-[#0b0e14] border border-[#1e2638] hover:border-amber-400 transition-all cursor-pointer space-y-1 group"
+                        title={piece.name}
                       >
-                        <div className="flex items-start gap-2">
-                          <div className="relative w-10 h-10 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                            {piece.icon && (
-                              <img src={piece.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
-                            )}
-                            {piece.isArtifice && (
-                              <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 rounded-bl text-[7px] flex items-center justify-center font-bold text-white">
-                                A
-                              </div>
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <span className={`text-[9px] font-mono font-bold uppercase block ${tier.text}`}>
-                              {piece.tierTypeName}
-                            </span>
-                            <h5 className="text-xs font-bold text-white truncate group-hover:text-amber-300">
-                              {piece.name}
-                            </h5>
-                          </div>
+                        <div className="relative w-full aspect-square rounded-lg bg-black/60 border border-white/10 overflow-hidden">
+                          {piece.icon && (
+                            <img src={piece.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          )}
+                          {piece.isArtifice && (
+                            <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 rounded-bl text-[7px] flex items-center justify-center font-bold text-white">
+                              A
+                            </div>
+                          )}
                         </div>
-
-                        {/* Set Tag / Location Tag & Total Stat */}
-                        <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-slate-800/80">
-                          <span className={`px-1.5 py-0.2 rounded font-bold uppercase ${
-                            piece.location === 'equipped' 
-                              ? 'bg-emerald-500/20 text-emerald-300' 
-                              : piece.location === 'bag' 
-                                ? 'bg-sky-500/20 text-sky-300' 
-                                : 'bg-purple-500/20 text-purple-300'
-                          }`}>
-                            {piece.location}
-                          </span>
-                          <span className="text-slate-300 font-bold">
-                            Base: {piece.stats?.total || 0}
-                          </span>
+                        <div className="text-[10px] font-bold text-white truncate font-heading text-center">
+                          {piece.name}
                         </div>
                       </div>
                     );
                   })}
                 </div>
 
-                {/* Required Mods Guide & Action Button */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-                  <div className="space-y-1">
-                    <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">
-                      Required Armour Stat & Artifice Mods:
-                    </span>
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {build.modsNeeded.length > 0 ? (
-                        build.modsNeeded.map((mod, mIdx) => (
-                          <span
-                            key={mIdx}
-                            className={`text-[11px] font-mono px-2 py-0.5 rounded border flex items-center gap-1 ${
-                              mod.value === 3 
-                                ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/40' 
-                                : 'bg-slate-900 text-amber-300 border-amber-500/30'
-                            }`}
-                          >
-                            <Zap className="w-3 h-3 text-amber-400" />
-                            {mod.label}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs font-mono text-emerald-400">
-                          ✓ No Stat Mods required! Target met with raw armor stats.
-                        </span>
-                      )}
-                    </div>
+                {/* Footer: Required Mods & Equip Button */}
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <div className="flex items-center gap-1 flex-wrap">
+                    {build.modsNeeded.map((mod, mIdx) => (
+                      <span
+                        key={mIdx}
+                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0b0e14] border border-slate-800 text-slate-300"
+                      >
+                        {mod.label}
+                      </span>
+                    ))}
                   </div>
 
                   <button
                     disabled={isBuilding}
                     onClick={() => handleEquipBuild(build)}
-                    className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold font-heading tracking-wide text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-50"
+                    className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold font-heading text-xs transition-colors flex items-center gap-1.5 disabled:opacity-50 flex-shrink-0"
                   >
-                    <Zap className="w-4 h-4" />
-                    <span>Equip Full Armour Build</span>
+                    <Zap className="w-3.5 h-3.5" />
+                    <span>Equip Build</span>
                   </button>
                 </div>
 
@@ -900,7 +612,6 @@ export default function ArmourOptimizer({
             ))}
           </div>
         )}
-
       </div>
 
     </div>

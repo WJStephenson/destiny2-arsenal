@@ -963,10 +963,10 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 1: EQUIPPED WEAPONS (With Bag Weapons Swap Row & Perk Icons) */}
+      {/* Sub-Tab 1: EQUIPPED WEAPONS */}
       {activeSubTab === 'weapons' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {weaponSlots.map((slotGroup, sIdx) => {
               const item = slotGroup.equipped;
               if (!item) return null;
@@ -977,11 +977,11 @@ export default function GuardianManager({
               return (
                 <div
                   key={sIdx}
-                  className="bg-[#121722] border border-[#20293a] rounded-xl overflow-hidden flex flex-col justify-between shadow-xl"
+                  className="bg-[#121722] border border-[#1e2638] rounded-2xl overflow-hidden flex flex-col justify-between shadow-md"
                 >
                   <div>
                     {/* Slot Header */}
-                    <div className="px-4 py-2 bg-[#0b0e14] border-b border-[#20293a] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
+                    <div className="px-3.5 py-2 bg-[#0b0e14] border-b border-[#1e2638] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
                       <span>{slotGroup.title}</span>
                       <span className="text-[11px] text-amber-400 font-mono">
                         {item.power ? `✧ ${item.power}` : ''}
@@ -989,13 +989,13 @@ export default function GuardianManager({
                     </div>
 
                     {/* Main Equipped Weapon Header */}
-                    <div className={`p-4 ${tierInfo.headerBg} border-b border-[#20293a]`}>
-                      <div className="flex items-start gap-3.5">
+                    <div className="p-3.5 border-b border-[#1e2638]">
+                      <div className="flex items-start gap-3">
                         
                         {/* Weapon Thumbnail */}
                         <div 
                           onClick={() => onSelectWeapon?.(item.baseItem || item)}
-                          className="relative w-16 h-16 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-md"
+                          className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-sm"
                           title="Click for weapon details"
                         >
                           {item.icon && (
@@ -1020,55 +1020,54 @@ export default function GuardianManager({
                           </div>
                           <h4 
                             onClick={() => onSelectWeapon?.(item.baseItem || item)}
-                            className="font-bold text-white text-base truncate hover:text-amber-300 cursor-pointer transition-colors"
+                            className="font-bold text-white text-base truncate hover:text-amber-300 cursor-pointer transition-colors font-heading"
                           >
                             {item.name}
                           </h4>
-                          <span className="text-xs text-slate-400 truncate block mt-0.5">{item.itemTypeDisplayName}</span>
+                          <span className="text-xs text-slate-400 truncate block">{item.itemTypeDisplayName}</span>
                         </div>
 
                       </div>
                     </div>
 
-                    {/* Active Perks (Represented as Icon Badges with Long-Press Info!) */}
-                    <div className="p-3.5 space-y-2 border-b border-[#20293a]/60">
-                      <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">
-                        Rolled Perks (Tap/Hold for info):
-                      </span>
-                      <div className="flex flex-wrap gap-2">
-                        {item.perks?.map((p, pIdx) => {
-                          const pObj = typeof p === 'object' ? p : { name: p };
-                          return (
-                            <LongPressable
-                              key={pIdx}
-                              onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
-                              onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
-                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0b0e14] hover:bg-slate-800 border border-slate-700/80 hover:border-amber-500/50 cursor-pointer transition-all shadow-sm group"
-                              title={pObj.name}
-                            >
-                              {pObj.icon ? (
-                                <img src={pObj.icon} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />
-                              ) : (
-                                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                              )}
-                              <span className="text-xs text-slate-200 font-mono group-hover:text-amber-300">
-                                {pObj.name}
-                              </span>
-                            </LongPressable>
-                          );
-                        })}
+                    {/* Active Perks */}
+                    {item.perks && item.perks.length > 0 && (
+                      <div className="p-3 space-y-1.5 border-b border-[#1e2638]">
+                        <div className="flex flex-wrap gap-1.5">
+                          {item.perks.map((p, pIdx) => {
+                            const pObj = typeof p === 'object' ? p : { name: p };
+                            return (
+                              <LongPressable
+                                key={pIdx}
+                                onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                                onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-[#0b0e14] hover:bg-slate-800 border border-[#1e2638] hover:border-amber-500/40 cursor-pointer transition-colors group"
+                                title={pObj.name}
+                              >
+                                {pObj.icon ? (
+                                  <img src={pObj.icon} alt="" className="w-4 h-4 rounded object-cover flex-shrink-0" />
+                                ) : (
+                                  <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                                )}
+                                <span className="text-xs text-slate-300 font-mono group-hover:text-amber-300">
+                                  {pObj.name}
+                                </span>
+                              </LongPressable>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
-                    {/* Bag Inventory Quick Swap Row (Smaller Icons Underneath!) */}
-                    <div className="p-3.5 bg-[#0e131d] space-y-2">
+                    {/* Bag Inventory Quick Swap Row */}
+                    <div className="p-3 bg-[#0b0e14] space-y-1.5">
                       <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
-                        <span>Bag ({slotGroup.bag.length}) • Tap to Swap</span>
-                        <span className="text-[10px] text-slate-500">Hold for details</span>
+                        <span>Bag ({slotGroup.bag.length})</span>
+                        <span className="text-[10px] text-slate-500">Tap to equip • Hold for info</span>
                       </div>
 
                       {slotGroup.bag.length > 0 ? (
-                        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                           {slotGroup.bag.map((bagItem) => {
                             const bTier = getTierInfo(bagItem.tierTypeName);
                             const isSwapping = actionLoading === bagItem.itemInstanceId;
@@ -1078,7 +1077,7 @@ export default function GuardianManager({
                                 key={bagItem.itemInstanceId}
                                 onClick={() => handleEquipItem(bagItem.itemInstanceId)}
                                 onLongPress={() => onSelectWeapon?.(bagItem.baseItem || bagItem)}
-                                className={`relative w-12 h-12 rounded-xl bg-black/80 border-2 ${bTier.border || 'border-slate-700'} hover:border-amber-400 p-0.5 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-md flex items-center justify-center overflow-hidden`}
+                                className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} hover:border-amber-400 p-0.5 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center overflow-hidden`}
                                 title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
                               >
                                 {bagItem.icon ? (
@@ -1095,7 +1094,7 @@ export default function GuardianManager({
 
                                 {isSwapping && (
                                   <div className="absolute inset-0 bg-black/75 flex items-center justify-center">
-                                    <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
+                                    <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
                                   </div>
                                 )}
                               </LongPressable>
@@ -1103,21 +1102,21 @@ export default function GuardianManager({
                           })}
                         </div>
                       ) : (
-                        <p className="text-xs text-slate-500 italic">No alternative weapons in bag</p>
+                        <p className="text-xs text-slate-500 italic">No spare weapons in bag</p>
                       )}
                     </div>
 
                   </div>
 
                   {/* Transfer to Vault Footer */}
-                  <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a]">
+                  <div className="p-2 bg-[#0e131d] border-t border-[#1e2638]">
                     <button
                       disabled={actionLoading === item.itemInstanceId}
                       onClick={() => handleTransferItem(item, true)}
-                      className="w-full py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                      className="w-full py-1.5 rounded-lg bg-[#121722] hover:bg-slate-800 text-slate-300 text-xs font-mono border border-[#1e2638] flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
                     >
                       <Box className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Transfer Equipped to Vault</span>
+                      <span>Transfer to Vault</span>
                     </button>
                   </div>
 
@@ -1130,16 +1129,16 @@ export default function GuardianManager({
 
       {/* Sub-Tab 2: EQUIPPED ARMOUR & STAT OPTIMIZER */}
       {activeSubTab === 'armor' && (
-        <div className="space-y-5">
+        <div className="space-y-4">
           
           {/* Armour View Switcher */}
-          <div className="flex items-center justify-between flex-wrap gap-2 bg-[#121722] border border-[#20293a] p-2 rounded-xl">
+          <div className="flex items-center justify-between flex-wrap gap-2 bg-[#121722] border border-[#1e2638] p-2 rounded-2xl">
             <div className="flex items-center gap-1">
               <button
                 onClick={() => setArmorView('slots')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-heading font-bold tracking-wide transition-all ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-heading font-bold tracking-wide transition-all ${
                   armorView === 'slots' 
-                    ? 'bg-amber-500 text-black shadow-md' 
+                    ? 'bg-amber-500 text-black shadow-sm' 
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
@@ -1148,14 +1147,14 @@ export default function GuardianManager({
 
               <button
                 onClick={() => setArmorView('optimizer')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-heading font-bold tracking-wide transition-all flex items-center gap-1.5 ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-heading font-bold tracking-wide transition-all flex items-center gap-1.5 ${
                   armorView === 'optimizer' 
-                    ? 'bg-amber-500 text-black shadow-md' 
+                    ? 'bg-amber-500 text-black shadow-sm' 
                     : 'text-slate-400 hover:text-amber-400'
                 }`}
               >
                 <Zap className="w-3.5 h-3.5" />
-                <span>⚡ Stat Optimizer (D2 Builder)</span>
+                <span>Stat Optimizer</span>
               </button>
             </div>
 
@@ -1164,7 +1163,7 @@ export default function GuardianManager({
             </span>
           </div>
 
-          {/* VIEW 1: 5 SLOTS (Equipped + 6-Stat breakdown + Bag quick swap row) */}
+          {/* VIEW 1: 5 SLOTS */}
           {armorView === 'slots' && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {armorSlots.map((slotGroup, sIdx) => {
@@ -1176,20 +1175,20 @@ export default function GuardianManager({
                 return (
                   <div
                     key={sIdx}
-                    className="bg-[#121722] border border-[#20293a] rounded-xl overflow-hidden flex flex-col justify-between shadow-xl"
+                    className="bg-[#121722] border border-[#1e2638] rounded-2xl overflow-hidden flex flex-col justify-between shadow-md"
                   >
                     <div>
                       {/* Slot Header */}
-                      <div className="px-4 py-2 bg-[#0b0e14] border-b border-[#20293a] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
+                      <div className="px-3.5 py-2 bg-[#0b0e14] border-b border-[#1e2638] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
                         <span>{slotGroup.title}</span>
                         <div className="flex items-center gap-2">
                           {item.armorStats?.total ? (
-                            <span className="text-[11px] text-slate-300 font-mono">
+                            <span className="text-[11px] text-slate-400 font-mono">
                               Total: {item.armorStats.total}
                             </span>
                           ) : null}
                           {item.power && (
-                            <span className="text-[11px] text-amber-400 font-mono">
+                            <span className="text-[11px] text-amber-400 font-mono font-bold">
                               ✧ {item.power}
                             </span>
                           )}
@@ -1197,13 +1196,13 @@ export default function GuardianManager({
                       </div>
 
                       {/* Equipped Armor Main Header */}
-                      <div className={`p-3.5 ${tierInfo.headerBg} border-b border-[#20293a]`}>
+                      <div className="p-3.5 border-b border-[#1e2638]">
                         <div className="flex items-start gap-3">
                           
                           {/* Armor Thumbnail */}
                           <div 
                             onClick={() => onSelectArmor?.(item.baseItem || item)}
-                            className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-md"
+                            className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-sm"
                             title="Click for armour details"
                           >
                             {item.icon && (
@@ -1211,6 +1210,11 @@ export default function GuardianManager({
                             )}
                             {item.iconWatermark && (
                               <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
+                            )}
+                            {item.isArtifice && (
+                              <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 rounded-bl text-[7px] flex items-center justify-center font-bold text-white">
+                                A
+                              </div>
                             )}
                           </div>
 
@@ -1221,42 +1225,42 @@ export default function GuardianManager({
                             </span>
                             <h4 
                               onClick={() => onSelectArmor?.(item.baseItem || item)}
-                              className="font-bold text-white text-base truncate hover:text-amber-300 cursor-pointer transition-colors"
+                              className="font-bold text-white text-base truncate hover:text-amber-300 cursor-pointer transition-colors font-heading"
                             >
                               {item.name}
                             </h4>
-                            <span className="text-xs text-slate-400 truncate block mt-0.5">{item.itemTypeDisplayName || 'Armour'}</span>
+                            <span className="text-xs text-slate-400 truncate block">{item.itemTypeDisplayName || 'Armour'}</span>
                           </div>
 
                         </div>
                       </div>
 
-                      {/* 6-Stats Breakdown Grid (New Frontiers Stats: WEAP, HLTH, CLAS, GREN, SUPR, MELE) */}
+                      {/* 6-Stats Breakdown Grid */}
                       {item.armorStats && (
-                        <div className="p-3 bg-[#0b0e14] border-b border-[#20293a]/60">
+                        <div className="p-2.5 bg-[#0b0e14] border-b border-[#1e2638]">
                           <div className="grid grid-cols-6 gap-1 text-center font-mono">
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-sky-400 font-bold" title="Weapons (Handling, Reload & Ammo)">WEAP</div>
+                              <div className="text-[9px] text-slate-400 font-semibold">WEAP</div>
                               <div className="text-xs font-bold text-white">{item.armorStats.weapons ?? item.armorStats.mobility}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-emerald-400 font-bold" title="Health (Survival & Shield)">HLTH</div>
+                              <div className="text-[9px] text-slate-400 font-semibold">HLTH</div>
                               <div className="text-xs font-bold text-white">{item.armorStats.health ?? item.armorStats.resilience}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-amber-400 font-bold" title="Class Ability Cooldown">CLAS</div>
+                              <div className="text-[9px] text-slate-400 font-semibold">CLAS</div>
                               <div className="text-xs font-bold text-white">{item.armorStats.classAbility ?? item.armorStats.recovery}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-indigo-400 font-bold" title="Grenade Cooldown & Potency">GREN</div>
+                              <div className="text-[9px] text-slate-400 font-semibold">GREN</div>
                               <div className="text-xs font-bold text-white">{item.armorStats.grenade ?? item.armorStats.discipline}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-purple-400 font-bold" title="Super Cooldown & Regeneration">SUPR</div>
+                              <div className="text-[9px] text-slate-400 font-semibold">SUPR</div>
                               <div className="text-xs font-bold text-white">{item.armorStats.superAbility ?? item.armorStats.intellect}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-rose-400 font-bold" title="Powered Melee Cooldown & Potency">MELE</div>
+                              <div className="text-[9px] text-slate-400 font-semibold">MELE</div>
                               <div className="text-xs font-bold text-white">{item.armorStats.melee ?? item.armorStats.strength}</div>
                             </div>
                           </div>
@@ -1265,7 +1269,7 @@ export default function GuardianManager({
 
                       {/* Active Perks / Mods */}
                       {item.perks?.length > 0 && (
-                        <div className="p-3 space-y-1.5 border-b border-[#20293a]/60">
+                        <div className="p-2.5 space-y-1.5 border-b border-[#1e2638]">
                           <div className="flex flex-wrap gap-1.5">
                             {item.perks.map((p, pIdx) => {
                               const pObj = typeof p === 'object' ? p : { name: p };
@@ -1274,11 +1278,11 @@ export default function GuardianManager({
                                   key={pIdx}
                                   onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
                                   onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60 hover:border-amber-500/50 cursor-pointer group"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-[#1e2638] hover:border-amber-500/40 cursor-pointer group"
                                   title={pObj.name}
                                 >
                                   {pObj.icon && <img src={pObj.icon} alt="" className="w-3.5 h-3.5 rounded" />}
-                                  <span className="group-hover:text-amber-300">{pObj.name}</span>
+                                  <span className="group-hover:text-amber-300 truncate max-w-[130px]">{pObj.name}</span>
                                 </LongPressable>
                               );
                             })}
@@ -1287,67 +1291,63 @@ export default function GuardianManager({
                       )}
 
                       {/* Bag Inventory Quick Swap Row */}
-                      <div className="p-3 bg-[#0e131d] space-y-2">
+                      <div className="p-3 bg-[#0b0e14] space-y-1.5">
                         <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
-                          <span>Bag ({slotGroup.bag.length}) • Tap to Swap</span>
-                          <span className="text-[10px] text-slate-500">Hold for details</span>
+                          <span>Bag ({slotGroup.bag.length})</span>
+                          <span className="text-[10px] text-slate-500">Tap to equip</span>
                         </div>
 
                         {slotGroup.bag.length > 0 ? (
-                          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
                             {slotGroup.bag.map((bagItem) => {
                               const bTier = getTierInfo(bagItem.tierTypeName);
+                              const isSwapping = actionLoading === bagItem.itemInstanceId;
+
                               return (
                                 <LongPressable
-                                  key={bagItem.itemInstanceId || bagItem.itemHash}
+                                  key={bagItem.itemInstanceId}
                                   onClick={() => handleEquipItem(bagItem.itemInstanceId)}
                                   onLongPress={() => onSelectArmor?.(bagItem.baseItem || bagItem)}
-                                  className="relative flex-shrink-0 group cursor-pointer"
-                                  title={`${bagItem.name} • Tap to swap, hold for details`}
+                                  className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} hover:border-amber-400 p-0.5 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center overflow-hidden`}
+                                  title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
                                 >
-                                  <div className={`relative w-12 h-12 rounded-lg bg-black/80 border-2 overflow-hidden transition-all group-hover:scale-105 shadow-md ${
-                                    bagItem.tierTypeName === 'Exotic' 
-                                      ? 'border-amber-400' 
-                                      : bagItem.tierTypeName === 'Legendary' 
-                                        ? 'border-purple-500' 
-                                        : 'border-blue-500'
-                                  }`}>
-                                    {bagItem.icon && (
-                                      <img src={bagItem.icon} alt="" className="w-full h-full object-cover" />
-                                    )}
-                                    {bagItem.power && (
-                                      <div className="absolute bottom-0 inset-x-0 bg-black/85 text-[9px] font-mono text-amber-300 text-center font-bold">
-                                        {bagItem.power}
-                                      </div>
-                                    )}
-                                    {bagItem.armorStats?.total ? (
-                                      <div className="absolute top-0 right-0 bg-black/85 px-1 text-[8px] font-mono text-slate-300 rounded-bl">
-                                        {bagItem.armorStats.total}
-                                      </div>
-                                    ) : null}
-                                  </div>
+                                  {bagItem.icon ? (
+                                    <img src={bagItem.icon} alt="" className="w-full h-full object-cover rounded-lg" />
+                                  ) : (
+                                    <span className="text-[10px] text-slate-500 font-mono">D2</span>
+                                  )}
+
+                                  {bagItem.power && (
+                                    <span className="absolute bottom-0.5 right-0.5 text-[8px] font-mono bg-black/90 text-amber-300 px-1 rounded font-bold leading-tight">
+                                      {bagItem.power}
+                                    </span>
+                                  )}
+
+                                  {isSwapping && (
+                                    <div className="absolute inset-0 bg-black/75 flex items-center justify-center">
+                                      <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                                    </div>
+                                  )}
                                 </LongPressable>
                               );
                             })}
                           </div>
                         ) : (
-                          <div className="text-[11px] font-mono text-slate-600 italic py-1">
-                            No other {slotGroup.title} items in character bag
-                          </div>
+                          <p className="text-xs text-slate-500 italic">No alternative pieces in bag</p>
                         )}
                       </div>
 
                     </div>
 
-                    {/* Actions */}
-                    <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a]">
+                    {/* Transfer to Vault Footer */}
+                    <div className="p-2 bg-[#0e131d] border-t border-[#1e2638]">
                       <button
                         disabled={actionLoading === item.itemInstanceId}
                         onClick={() => handleTransferItem(item, true)}
-                        className="w-full py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                        className="w-full py-1.5 rounded-lg bg-[#121722] hover:bg-slate-800 text-slate-300 text-xs font-mono border border-[#1e2638] flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
                       >
                         <Box className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Transfer Equipped to Vault</span>
+                        <span>Transfer to Vault</span>
                       </button>
                     </div>
 
@@ -1357,7 +1357,7 @@ export default function GuardianManager({
             </div>
           )}
 
-          {/* VIEW 2: ⚡ STAT OPTIMIZER & LOADOUT BUILDER */}
+          {/* VIEW 2: STAT OPTIMIZER */}
           {armorView === 'optimizer' && (
             <ArmourOptimizer
               activeChar={activeChar}
