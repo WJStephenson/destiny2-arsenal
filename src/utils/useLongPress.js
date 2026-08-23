@@ -52,6 +52,12 @@ export function useLongPress(onLongPress, onClick, { delay = 380, threshold = 8 
     }
   }, [threshold]);
 
+  const preventContextMenu = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    return false;
+  }, []);
+
   return {
     onTouchStart: start,
     onTouchMove: move,
@@ -61,10 +67,6 @@ export function useLongPress(onLongPress, onClick, { delay = 380, threshold = 8 
     onMouseMove: move,
     onMouseUp: (e) => clear(e, true),
     onMouseLeave: (e) => clear(e, false),
-    onContextMenu: (e) => {
-      if (isLongPressRef.current) {
-        e.preventDefault();
-      }
-    }
+    onContextMenu: preventContextMenu
   };
 }

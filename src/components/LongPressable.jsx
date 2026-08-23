@@ -6,7 +6,7 @@ export default function LongPressable({
   onLongPress, 
   onClick, 
   className = '', 
-  delay = 400,
+  delay = 380,
   title = ''
 }) {
   const bind = useLongPress(
@@ -20,7 +20,21 @@ export default function LongPressable({
   );
 
   return (
-    <span {...bind} className={`cursor-pointer select-none inline-flex items-center ${className}`} title={title}>
+    <span 
+      {...bind} 
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        return false;
+      }}
+      style={{
+        WebkitTouchCallout: 'none',
+        WebkitUserSelect: 'none',
+        userSelect: 'none'
+      }}
+      className={`cursor-pointer select-none inline-flex items-center ${className}`} 
+      title={title}
+    >
       {children}
     </span>
   );
