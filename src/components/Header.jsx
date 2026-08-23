@@ -6,53 +6,67 @@ import {
   Scale, 
   Bookmark, 
   Settings, 
-  RefreshCw, 
-  ExternalLink,
-  LogIn,
-  Zap
+  LogIn, 
+  Zap, 
+  User 
 } from 'lucide-react';
 
 export default function Header({ 
   activeTab, 
   setActiveTab, 
-  manifestStatus, 
   onOpenSettings,
   compareCount = 0,
   wishlistCount = 0,
   authSession,
   onLogin
 }) {
-  const isManifestReady = manifestStatus?.status === 'ready';
-
-  const displayName = authSession?.session?.user?.bungieNetUser?.displayName || 
-    authSession?.session?.user?.destinyMemberships?.[0]?.displayName || null;
+  const sessionUser = authSession?.session?.user;
+  
+  // Resolve real Bungie Global Name (e.g. "WJStephenson#1234" or gamer tag)
+  const displayName = sessionUser?.bungieGlobalName || 
+    sessionUser?.displayName || 
+    sessionUser?.bungieNetUser?.uniqueName || 
+    sessionUser?.bungieNetUser?.displayName || 
+    sessionUser?.destinyMemberships?.[0]?.bungieGlobalDisplayName || 
+    sessionUser?.destinyMemberships?.[0]?.displayName || 
+    (authSession?.authenticated ? 'Guardian' : null);
 
   return (
     <header className="sticky top-0 z-40 bg-[#0b0e14]/90 backdrop-blur-md border-b border-[#20293a] px-3 sm:px-4 lg:px-8 py-2.5 sm:py-3">
       <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
         
-        {/* Brand & Manifest Indicator */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
-          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold font-heading text-base sm:text-lg shadow-sm shadow-amber-500/20">
-            ⬡
-          </div>
-          <div>
-            <div className="flex items-center gap-1.5 sm:gap-2">
-              <h1 className="text-base sm:text-lg font-bold text-white tracking-wide font-heading">
-                DESTINY 2 ARSENAL
-              </h1>
-              <span className="text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono border border-amber-500/40 font-bold">
-                PWA
-              </span>
-            </div>
-            <p className="text-[10px] sm:text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
-              <span className={`w-1.5 h-1.5 rounded-full ${isManifestReady ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-              <span>{isManifestReady ? `${manifestStatus?.weaponsCount || '1,392'} weapons` : 'Syncing...'}</span>
-            </p>
-          </div>
+        {/* Left: Signed-in Bungie Account (or Connect Button) */}
+        <div className="flex items-center gap-2">
+          {authSession?.authenticated ? (
+            <button
+              onClick={() => setActiveTab('guardian')}
+              className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#121722] hover:bg-[#182030] border border-amber-500/30 text-left transition-colors shadow-sm"
+              title="Open Guardian & Vault"
+            >
+              <div className="relative">
+                <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-bold text-xs">
+                  <User className="w-4 h-4" />
+                </div>
+                <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-emerald-400 ring-2 ring-[#121722] animate-pulse" />
+              </div>
+              <div>
+                <span className="text-xs sm:text-sm font-bold text-white font-heading tracking-wide block truncate max-w-[170px] sm:max-w-[240px]">
+                  {displayName}
+                </span>
+              </div>
+            </button>
+          ) : (
+            <button
+              onClick={onLogin}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-xs sm:text-sm font-bold text-amber-300 font-heading tracking-wide transition-colors shadow-sm"
+            >
+              <LogIn className="w-4 h-4 text-amber-400" />
+              <span>Connect Bungie Account</span>
+            </button>
+          )}
         </div>
 
-        {/* Desktop Tab Navigation (Hidden completely on mobile screens!) */}
+        {/* Desktop Tab Navigation (Hidden on mobile) */}
         <nav className="hidden md:flex items-center gap-1 bg-[#121722] p-1 rounded-xl border border-[#20293a]">
           
           <button
@@ -88,10 +102,7 @@ export default function Header({
             }`}
           >
             <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>Guardian & Vault</span>
-            {authSession?.authenticated && (
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-            )}
+            <span>Vault & Loadouts</span>
           </button>
 
           <button
@@ -142,40 +153,14 @@ export default function Header({
 
         </nav>
 
-        {/* Right Action Buttons */}
-        <div className="flex items-center gap-2">
-          
-          {/* User / Login Status Pill */}
-          {authSession?.authenticated ? (
-            <button
-              onClick={() => setActiveTab('guardian')}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="font-mono text-emerald-300 font-bold truncate max-w-[90px] sm:max-w-[120px]">
-                {displayName || 'Connected'}
-              </span>
-            </button>
-          ) : (
-            <button
-              onClick={onLogin}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-xs font-medium text-amber-300 transition-colors"
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Connect Bungie</span>
-              <span className="sm:hidden">Connect</span>
-            </button>
-          )}
-
-          <button
-            onClick={onOpenSettings}
-            className="p-1.5 sm:p-2 rounded-lg bg-[#121722] hover:bg-slate-800 border border-[#20293a] text-slate-400 hover:text-slate-200 transition-colors"
-            title="Settings & API Credentials"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-
-        </div>
+        {/* Right: Settings Cog */}
+        <button
+          onClick={onOpenSettings}
+          className="p-2 rounded-xl bg-[#121722] hover:bg-slate-800 border border-[#20293a] text-slate-400 hover:text-amber-300 transition-colors shadow-sm"
+          title="Settings & API Credentials"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
 
       </div>
     </header>

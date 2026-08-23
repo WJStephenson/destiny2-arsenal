@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Shield, Check, AlertCircle, RefreshCw } from 'lucide-react';
-import { getStoredSettings, saveStoredAuthSession } from '../utils/auth-storage';
+import { getStoredSettings, saveStoredAuthSession, fetchBungieCurrentUser } from '../utils/auth-storage';
 
 export default function OAuthCallback({ onComplete }) {
   const [status, setStatus] = useState('processing');
@@ -72,16 +72,17 @@ export default function OAuthCallback({ onComplete }) {
 
       const tokenData = await tokenRes.json();
       if (tokenData.access_token) {
+        // Fetch real Bungie Name and user profile
+        const userInfo = await fetchBungieCurrentUser(tokenData.access_token, settings.apiKey);
+
         const session = {
           accessToken: tokenData.access_token,
           refreshToken: tokenData.refresh_token,
           expiresAt: Date.now() + (tokenData.expires_in * 1000),
           membershipId: tokenData.membership_id,
-          user: {
+          user: userInfo || {
             membershipId: tokenData.membership_id,
-            bungieNetUser: {
-              displayName: `Guardian #${tokenData.membership_id}`
-            }
+            displayName: `Guardian #${tokenData.membership_id}`
           }
         };
 

@@ -19,7 +19,8 @@ import {
   getStoredSettings, 
   getStoredAuthSession, 
   saveStoredAuthSession, 
-  clearStoredAuthSession 
+  clearStoredAuthSession,
+  fetchBungieCurrentUser 
 } from './utils/auth-storage';
 
 export default function App() {
@@ -110,19 +111,25 @@ export default function App() {
 
   const checkAuthSession = async () => {
     const local = getStoredAuthSession();
-    if (local && local.authenticated) {
+    if (local && local.authenticated && local.session) {
       setAuthSession(local);
-    }
-    try {
-      const res = await fetch('/api/auth/session');
-      if (res.ok) {
-        const data = await res.json();
-        if (data && data.authenticated) {
-          saveStoredAuthSession(data);
-          setAuthSession(data);
-        }
+
+      // If user profile is generic Guardian #..., fetch real Bungie account name
+      const curName = local.session?.user?.displayName || '';
+      if (!local.session?.user?.bungieGlobalName || curName.startsWith('Guardian #')) {
+        const settings = getStoredSettings();
+        fetchBungieCurrentUser(local.session.accessToken, settings.apiKey).then(userInfo => {
+          if (userInfo) {
+            const updated = {
+              ...local.session,
+              user: userInfo
+            };
+            saveStoredAuthSession(updated);
+            setAuthSession({ authenticated: true, session: updated });
+          }
+        });
       }
-    } catch (e) {}
+    }
   };
 
   const handleLogin = () => {

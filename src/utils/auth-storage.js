@@ -74,6 +74,38 @@ export function clearStoredAuthSession() {
   return { authenticated: false, session: null };
 }
 
+export async function fetchBungieCurrentUser(token, apiKey = '') {
+  try {
+    const headers = { 'Authorization': `Bearer ${token}` };
+    if (apiKey) headers['X-API-Key'] = apiKey;
+
+    const res = await fetch('https://www.bungie.net/Platform/User/GetMembershipsForCurrentUser/', { headers });
+    const data = await res.json();
+    if (data.Response) {
+      const bNet = data.Response.bungieNetUser;
+      const primaryMem = data.Response.destinyMemberships?.[0];
+      
+      // Determine real Bungie Global Name (e.g. 'WJStephenson#1234') or Gamer Tag
+      const bungieGlobalName = primaryMem?.bungieGlobalDisplayName 
+        ? `${primaryMem.bungieGlobalDisplayName}${primaryMem.bungieGlobalDisplayNameCode != null ? '#' + String(primaryMem.bungieGlobalDisplayNameCode).padStart(4, '0') : ''}`
+        : null;
+
+      const realName = bungieGlobalName || bNet?.uniqueName || bNet?.displayName || primaryMem?.displayName || 'Guardian';
+
+      return {
+        ...data.Response,
+        displayName: realName,
+        bungieGlobalName,
+        bungieNetUser: bNet,
+        destinyMemberships: data.Response.destinyMemberships
+      };
+    }
+  } catch (e) {
+    console.error('Error fetching Bungie user profile:', e);
+  }
+  return null;
+}
+
 export async function getValidAuthToken() {
   const { session } = getStoredAuthSession();
   if (!session || !session.accessToken) return null;
