@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { STAT_DESCRIPTIONS, ELEMENT_DESCRIPTIONS } from '../utils/info-catalog';
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
+import { getPerkByName, getPerkByHash } from '../utils/client-manifest';
 
 export default function InfoDrawer({ 
   item, 
@@ -25,12 +26,21 @@ export default function InfoDrawer({
 }) {
   if (!item) return null;
 
-  // Detect item type: 'perk' | 'stat' | 'element' | 'source' | 'generic'
-  let title = item.name || 'Information';
-  let category = item.category || 'Details';
-  let description = item.description || '';
-  let icon = item.icon || null;
-  let stats = item.stats || [];
+  // Resolve definition from client manifest if perk definition is incomplete
+  let perkDef = null;
+  if (item.hash) {
+    perkDef = getPerkByHash(item.hash);
+  }
+  if (!perkDef && item.name) {
+    perkDef = getPerkByName(item.name);
+  }
+
+  let title = perkDef?.name || item.name || 'Information';
+  let category = perkDef?.category || perkDef?.itemTypeDisplayName || item.category || (perkDef ? 'Perk Trait' : 'Details');
+  let description = perkDef?.description || item.description || '';
+  let icon = perkDef?.icon || item.icon || null;
+  let stats = (perkDef?.stats && perkDef.stats.length > 0) ? perkDef.stats : (item.stats || []);
+  let isEnhanced = perkDef?.isEnhanced || item.isEnhanced || false;
   let tips = item.tips || null;
   let synergies = item.synergies || null;
   let color = item.color || '#f59e0b';
@@ -46,8 +56,9 @@ export default function InfoDrawer({
   }
 
   // If item is an element name
-  if (ELEMENT_DESCRIPTIONS[item.name]) {
-    const el = ELEMENT_DESCRIPTIONS[item.name];
+  const cleanElemName = item.name?.replace(' Damage', '');
+  if (ELEMENT_DESCRIPTIONS[cleanElemName]) {
+    const el = ELEMENT_DESCRIPTIONS[cleanElemName];
     title = el.name;
     category = el.category;
     description = el.description;
@@ -86,13 +97,13 @@ export default function InfoDrawer({
                 <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold uppercase tracking-wider">
                   {category}
                 </span>
-                {item.isEnhanced && (
+                {isEnhanced && (
                   <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-900/60 text-amber-300 border border-amber-500/40">
                     Enhanced
                   </span>
                 )}
               </div>
-              <h3 className="text-xl font-bold text-white tracking-wide font-heading mt-0.5">
+              <h3 className="text-lg sm:text-xl font-bold text-white tracking-wide font-heading mt-0.5">
                 {title}
               </h3>
             </div>
@@ -108,12 +119,16 @@ export default function InfoDrawer({
         </div>
 
         {/* Body Content */}
-        <div className="p-6 space-y-4 overflow-y-auto flex-1">
+        <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1">
           
           {/* Main Description */}
-          {description && (
-            <div className="p-4 rounded-xl bg-[#0b0e14] border border-[#20293a] text-sm text-slate-200 leading-relaxed font-sans">
+          {description ? (
+            <div className="p-4 rounded-xl bg-[#0b0e14] border border-[#20293a] text-xs sm:text-sm text-slate-200 leading-relaxed font-sans">
               {description}
+            </div>
+          ) : (
+            <div className="p-4 rounded-xl bg-[#0b0e14] border border-[#20293a] text-xs text-slate-400 italic">
+              Destiny 2 perk metadata and socket trait.
             </div>
           )}
 
@@ -163,29 +178,29 @@ export default function InfoDrawer({
 
         {/* Footer Actions */}
         <div className="p-4 bg-slate-900 border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
-          {item.type === 'perk' && onFilterByPerk && (
+          {(item.type === 'perk' || perkDef) && onFilterByPerk && (
             <button
               onClick={() => {
-                onFilterByPerk(item.name);
+                onFilterByPerk(title);
                 onClose();
               }}
               className="flex-1 py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center justify-center gap-2 font-mono transition-colors"
             >
               <Filter className="w-4 h-4" />
-              <span>Filter Weapons with {item.name}</span>
+              <span>Filter Weapons with {title}</span>
             </button>
           )}
 
           {item.type === 'element' && onFilterByElement && (
             <button
               onClick={() => {
-                onFilterByElement(item.name.replace(' Damage', ''));
+                onFilterByElement(cleanElemName);
                 onClose();
               }}
               className="flex-1 py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center justify-center gap-2 font-mono transition-colors"
             >
               <Filter className="w-4 h-4" />
-              <span>Filter {item.name} Weapons</span>
+              <span>Filter {cleanElemName} Weapons</span>
             </button>
           )}
 

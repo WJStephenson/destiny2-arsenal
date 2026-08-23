@@ -6,6 +6,7 @@ let cachedFilters = null;
 let weaponsByHash = new Map();
 let armorByHash = new Map();
 let perksByHash = new Map();
+let perksByName = new Map();
 
 let loadPromise = null;
 
@@ -49,16 +50,19 @@ export async function initClientManifest(onProgress) {
       }
 
       if (aRes.ok) {
-        cachedArmor = await aRes.json();
+        const rawArmor = await aRes.json();
+        cachedArmor = Array.isArray(rawArmor) ? rawArmor : Object.values(rawArmor);
         cachedArmor.forEach(a => {
           if (a.hash) armorByHash.set(Number(a.hash), a);
         });
       }
 
       if (pRes.ok) {
-        cachedPerks = await pRes.json();
+        const rawPerks = await pRes.json();
+        cachedPerks = Array.isArray(rawPerks) ? rawPerks : Object.values(rawPerks);
         cachedPerks.forEach(p => {
           if (p.hash) perksByHash.set(Number(p.hash), p);
+          if (p.name) perksByName.set(p.name.toLowerCase().trim(), p);
         });
       }
 
@@ -272,6 +276,16 @@ export function searchPerksClient(query = '', type = 'all') {
     if (q) return p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q));
     return true;
   });
+}
+
+export function getPerkByName(name) {
+  if (!name) return null;
+  return perksByName.get(name.trim().toLowerCase()) || null;
+}
+
+export function getPerkByHash(hash) {
+  if (!hash) return null;
+  return perksByHash.get(Number(hash)) || null;
 }
 
 export function getClientItemByHash(hash) {
