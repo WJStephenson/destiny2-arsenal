@@ -184,32 +184,62 @@ export default function GuardianManager({
         else if (it.bucketHash === 953998645) detectedSlot = 'Power';
       }
 
-      // Armor 6-Stats extraction
+      // New Armor Stats extraction (Destiny 2 Frontiers System):
+      // Weapons (formerly Mobility), Health (formerly Resilience), Class (formerly Recovery),
+      // Grenade (formerly Discipline), Super (formerly Intellect), Melee (formerly Strength)
       const rawStats = it.itemInstanceId && statsMap[it.itemInstanceId]?.stats ? statsMap[it.itemInstanceId].stats : null;
       let armorStats = null;
       if (rawStats) {
-        const mob = rawStats[2996146669]?.value || 0;
-        const res = rawStats[392767087]?.value || 0;
-        const rec = rawStats[1943344089]?.value || 0;
-        const dis = rawStats[1735426796]?.value || 0;
-        const int = rawStats[144602215]?.value || 0;
-        const str = rawStats[4244567218]?.value || 0;
-        const total = mob + res + rec + dis + int + str;
-        armorStats = { mobility: mob, resilience: res, recovery: rec, discipline: dis, intellect: int, strength: str, total };
+        const weap = rawStats[2996146669]?.value || 0;
+        const hlth = rawStats[392767087]?.value || 0;
+        const clas = rawStats[1943344089]?.value || 0;
+        const gren = rawStats[1735426796]?.value || 0;
+        const supr = rawStats[144602215]?.value || 0;
+        const mele = rawStats[4244567218]?.value || 0;
+        const total = weap + hlth + clas + gren + supr + mele;
+        armorStats = {
+          weapons: weap,
+          health: hlth,
+          classAbility: clas,
+          grenade: gren,
+          superAbility: supr,
+          melee: mele,
+          mobility: weap,
+          resilience: hlth,
+          recovery: clas,
+          discipline: gren,
+          intellect: supr,
+          strength: mele,
+          total
+        };
       } else if (def.statsList && def.statsList.length > 0) {
-        let mob = 0, res = 0, rec = 0, dis = 0, int = 0, str = 0;
+        let weap = 0, hlth = 0, clas = 0, gren = 0, supr = 0, mele = 0;
         def.statsList.forEach(s => {
           const n = s.name?.toLowerCase() || '';
-          if (n.includes('mobility')) mob = s.value;
-          else if (n.includes('resilience')) res = s.value;
-          else if (n.includes('recovery')) rec = s.value;
-          else if (n.includes('discipline')) dis = s.value;
-          else if (n.includes('intellect')) int = s.value;
-          else if (n.includes('strength')) str = s.value;
+          if (n.includes('weapon') || n.includes('mobility')) weap = s.value;
+          else if (n.includes('health') || n.includes('resilience')) hlth = s.value;
+          else if (n.includes('class') || n.includes('recovery')) clas = s.value;
+          else if (n.includes('grenade') || n.includes('discipline')) gren = s.value;
+          else if (n.includes('super') || n.includes('intellect')) supr = s.value;
+          else if (n.includes('melee') || n.includes('strength')) mele = s.value;
         });
-        const total = mob + res + rec + dis + int + str;
+        const total = weap + hlth + clas + gren + supr + mele;
         if (total > 0) {
-          armorStats = { mobility: mob, resilience: res, recovery: rec, discipline: dis, intellect: int, strength: str, total };
+          armorStats = {
+            weapons: weap,
+            health: hlth,
+            classAbility: clas,
+            grenade: gren,
+            superAbility: supr,
+            melee: mele,
+            mobility: weap,
+            resilience: hlth,
+            recovery: clas,
+            discipline: gren,
+            intellect: supr,
+            strength: mele,
+            total
+          };
         }
       }
 
@@ -993,33 +1023,33 @@ export default function GuardianManager({
                         </div>
                       </div>
 
-                      {/* 6-Stats Breakdown Grid */}
+                      {/* 6-Stats Breakdown Grid (New Frontiers Stats: WEAP, HLTH, CLAS, GREN, SUPR, MELE) */}
                       {item.armorStats && (
                         <div className="p-3 bg-[#0b0e14] border-b border-[#20293a]/60">
                           <div className="grid grid-cols-6 gap-1 text-center font-mono">
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-sky-400 font-bold">MOB</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.mobility}</div>
+                              <div className="text-[9px] text-sky-400 font-bold" title="Weapons (Handling, Reload & Ammo)">WEAP</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.weapons ?? item.armorStats.mobility}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-amber-400 font-bold">RES</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.resilience}</div>
+                              <div className="text-[9px] text-emerald-400 font-bold" title="Health (Survival & Shield)">HLTH</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.health ?? item.armorStats.resilience}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-emerald-400 font-bold">REC</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.recovery}</div>
+                              <div className="text-[9px] text-amber-400 font-bold" title="Class Ability Cooldown">CLAS</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.classAbility ?? item.armorStats.recovery}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-indigo-400 font-bold">DIS</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.discipline}</div>
+                              <div className="text-[9px] text-indigo-400 font-bold" title="Grenade Cooldown & Potency">GREN</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.grenade ?? item.armorStats.discipline}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-purple-400 font-bold">INT</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.intellect}</div>
+                              <div className="text-[9px] text-purple-400 font-bold" title="Super Cooldown & Regeneration">SUPR</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.superAbility ?? item.armorStats.intellect}</div>
                             </div>
                             <div className="space-y-0.5">
-                              <div className="text-[9px] text-rose-400 font-bold">STR</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.strength}</div>
+                              <div className="text-[9px] text-rose-400 font-bold" title="Powered Melee Cooldown & Potency">MELE</div>
+                              <div className="text-xs font-bold text-white">{item.armorStats.melee ?? item.armorStats.strength}</div>
                             </div>
                           </div>
                         </div>
