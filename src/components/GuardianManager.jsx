@@ -322,14 +322,74 @@ export default function GuardianManager({
 
     setProfileData({
       profileInfo: data.profile?.data?.userInfo,
-      characters,
+            characters,
       vault
     });
   }
 
+  // Helper to determine if two items occupy the same equipment slot
+  const isSameSlot = (a, b) => {
+    if (!a || !b) return false;
+    if (a.bucketHash && b.bucketHash && a.bucketHash === b.bucketHash) return true;
+    if (a.isWeapon && b.isWeapon) {
+      if (a.slot && b.slot && a.slot.toLowerCase() === b.slot.toLowerCase()) return true;
+    }
+    if (a.isArmor && b.isArmor) {
+      const getSlotKey = (it) => {
+        const s = (it.armorSlot || it.slot || it.itemTypeDisplayName || '').toLowerCase();
+        if (s.includes('helmet')) return 'helmet';
+        if (s.includes('gauntlet') || s.includes('arms')) return 'gauntlets';
+        if (s.includes('chest')) return 'chest';
+        if (s.includes('leg')) return 'legs';
+        if (s.includes('class') || s.includes('mark') || s.includes('cloak') || s.includes('bond')) return 'class';
+        return null;
+      };
+      const slotA = getSlotKey(a);
+      const slotB = getSlotKey(b);
+      if (slotA && slotB && slotA === slotB) return true;
+    }
+    return false;
+  };
+
   const handleEquipItem = async (itemInstanceId) => {
     const character = profileData?.characters?.[selectedCharacterIndex];
     if (!character || !itemInstanceId) return;
+
+    // 1. Immediate Optimistic UI Update (0ms latency)
+    setProfileData(prev => {
+      if (!prev) return prev;
+      const nextChars = [...prev.characters];
+      const curChar = { ...nextChars[selectedCharacterIndex] };
+
+      // Find the item in character's bag or vault
+      const itemInBag = curChar.bag?.find(it => it.itemInstanceId === itemInstanceId);
+      const itemInVault = prev.vault?.find(it => it.itemInstanceId === itemInstanceId);
+      const itemToEquip = itemInBag || itemInVault;
+
+      if (!itemToEquip) return prev;
+
+      // Find currently equipped item in that exact slot
+      const equippedIdx = curChar.equipped?.findIndex(it => isSameSlot(it, itemToEquip));
+      if (equippedIdx !== -1 && equippedIdx !== undefined) {
+        const oldEquipped = curChar.equipped[equippedIdx];
+        const nextEquipped = [...curChar.equipped];
+        nextEquipped[equippedIdx] = itemToEquip;
+        curChar.equipped = nextEquipped;
+
+        if (itemInBag) {
+          curChar.bag = curChar.bag.filter(it => it.itemInstanceId !== itemInstanceId);
+          curChar.bag.push(oldEquipped);
+          nextChars[selectedCharacterIndex] = curChar;
+          return { ...prev, characters: nextChars };
+        } else if (itemInVault) {
+          const nextVault = prev.vault.filter(it => it.itemInstanceId !== itemInstanceId);
+          curChar.bag = [...(curChar.bag || []), oldEquipped];
+          nextChars[selectedCharacterIndex] = curChar;
+          return { ...prev, characters: nextChars, vault: nextVault };
+        }
+      }
+      return prev;
+    });
 
     setActionLoading(itemInstanceId);
     setStatusMessage('Equipping item on Guardian...');
@@ -349,7 +409,8 @@ export default function GuardianManager({
         });
         if (res.ok) {
           setStatusMessage('Item equipped successfully!');
-          await fetchLiveProfile();
+          // Delay live profile fetch to allow Bungie cache to invalidate
+          setTimeout(() => fetchLiveProfile(false), 2400);
           return;
         }
       } catch (e) {}
@@ -370,9 +431,12 @@ export default function GuardianManager({
       const data = await directRes.json();
       if (data.ErrorCode === 1) {
         setStatusMessage('Item equipped on your Guardian!');
-        await fetchLiveProfile();
+        // Allow Bungie servers 2.4s to propagate before re-fetching
+        setTimeout(() => fetchLiveProfile(false), 2400);
       } else {
         setStatusMessage(data.Message || 'Action completed');
+        // Rollback on error
+        await fetchLiveProfile();
       }
     } catch (e) {
       setStatusMessage('Request processed');
@@ -385,6 +449,28 @@ export default function GuardianManager({
   const handleTransferItem = async (item, transferToVault = false) => {
     const character = profileData?.characters?.[selectedCharacterIndex];
     if (!character || !item) return;
+
+    // 1. Immediate Optimistic UI Update
+    setProfileData(prev => {
+      if (!prev) return prev;
+      const nextChars = [...prev.characters];
+      const curChar = { ...nextChars[selectedCharacterIndex] };
+
+      if (transferToVault) {
+        // Move from character bag/equipped to vault
+        curChar.bag = (curChar.bag || []).filter(it => it.itemInstanceId !== item.itemInstanceId);
+        curChar.equipped = (curChar.equipped || []).filter(it => it.itemInstanceId !== item.itemInstanceId);
+        const nextVault = [item, ...(prev.vault || [])];
+        nextChars[selectedCharacterIndex] = curChar;
+        return { ...prev, characters: nextChars, vault: nextVault };
+      } else {
+        // Move from vault to character bag
+        const nextVault = (prev.vault || []).filter(it => it.itemInstanceId !== item.itemInstanceId);
+        curChar.bag = [item, ...(curChar.bag || [])];
+        nextChars[selectedCharacterIndex] = curChar;
+        return { ...prev, characters: nextChars, vault: nextVault };
+      }
+    });
 
     setActionLoading(item.itemInstanceId);
     setStatusMessage(transferToVault ? 'Transferring to Vault...' : `Transferring to ${character.classType}...`);
@@ -406,7 +492,7 @@ export default function GuardianManager({
         });
         if (res.ok) {
           setStatusMessage(transferToVault ? 'Moved to Vault!' : 'Transferred to Character!');
-          await fetchLiveProfile();
+          setTimeout(() => fetchLiveProfile(false), 2400);
           return;
         }
       } catch (e) {}
@@ -429,9 +515,10 @@ export default function GuardianManager({
       const data = await directRes.json();
       if (data.ErrorCode === 1) {
         setStatusMessage(transferToVault ? 'Moved to Vault!' : `Transferred to ${character.classType}!`);
-        await fetchLiveProfile();
+        setTimeout(() => fetchLiveProfile(false), 2400);
       } else {
         setStatusMessage(data.Message || 'Transfer complete');
+        await fetchLiveProfile();
       }
     } catch (e) {
       setStatusMessage('Transferred via Bungie');
@@ -444,6 +531,37 @@ export default function GuardianManager({
   const handleEquipLoadout = async (loadoutIndex) => {
     const character = profileData?.characters?.[selectedCharacterIndex];
     if (!character) return;
+
+    const loadout = character.loadouts?.[loadoutIndex];
+    if (loadout && loadout.items?.length > 0) {
+      // Optimistically update equipped items from loadout
+      setProfileData(prev => {
+        if (!prev) return prev;
+        const nextChars = [...prev.characters];
+        const curChar = { ...nextChars[selectedCharacterIndex] };
+
+        const nextEquipped = [...curChar.equipped];
+        const nextBag = [...curChar.bag];
+
+        loadout.items.forEach(ldItem => {
+          if (!ldItem.itemInstanceId) return;
+          const targetSlotIdx = nextEquipped.findIndex(it => isSameSlot(it, ldItem));
+          if (targetSlotIdx !== -1) {
+            const oldEq = nextEquipped[targetSlotIdx];
+            nextEquipped[targetSlotIdx] = ldItem;
+            // Place old item in bag if not already in loadout
+            if (!loadout.items.some(x => x.itemInstanceId === oldEq.itemInstanceId)) {
+              nextBag.push(oldEq);
+            }
+          }
+        });
+
+        curChar.equipped = nextEquipped;
+        curChar.bag = nextBag;
+        nextChars[selectedCharacterIndex] = curChar;
+        return { ...prev, characters: nextChars };
+      });
+    }
 
     setActionLoading(`loadout_${loadoutIndex}`);
     setStatusMessage(`Equipping Loadout #${loadoutIndex + 1}...`);
@@ -463,7 +581,7 @@ export default function GuardianManager({
         });
         if (res.ok) {
           setStatusMessage(`Loadout #${loadoutIndex + 1} equipped!`);
-          await fetchLiveProfile();
+          setTimeout(() => fetchLiveProfile(false), 2400);
           return;
         }
       } catch (e) {}
@@ -484,12 +602,13 @@ export default function GuardianManager({
       const data = await directRes.json();
       if (data.ErrorCode === 1) {
         setStatusMessage(`Loadout #${loadoutIndex + 1} active in-game!`);
-        await fetchLiveProfile();
+        setTimeout(() => fetchLiveProfile(false), 2400);
       } else {
         setStatusMessage(data.Message || `Loadout active`);
+        await fetchLiveProfile();
       }
     } catch (e) {
-      setStatusMessage(`Loadout equipped`);
+      setStatusMessage(`Loadout action processed`);
     } finally {
       setActionLoading(null);
       setTimeout(() => setStatusMessage(null), 3000);
