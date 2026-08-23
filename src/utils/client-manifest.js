@@ -4,7 +4,9 @@ let cachedPerks = null;
 let cachedFilters = null;
 
 let weaponsByHash = new Map();
+let weaponsByName = new Map();
 let armorByHash = new Map();
+let armorByName = new Map();
 let perksByHash = new Map();
 let perksByName = new Map();
 
@@ -45,7 +47,14 @@ export async function initClientManifest(onProgress) {
         ]);
         cachedWeapons = [...w1, ...w2, ...w3];
         cachedWeapons.forEach(w => {
-          if (w.hash) weaponsByHash.set(Number(w.hash), w);
+          const h = w.hash || w.id;
+          if (h) {
+            w.hash = h;
+            weaponsByHash.set(Number(h), w);
+          }
+          if (w.name) {
+            weaponsByName.set(w.name.toLowerCase().trim(), w);
+          }
         });
       }
 
@@ -53,7 +62,14 @@ export async function initClientManifest(onProgress) {
         const rawArmor = await aRes.json();
         cachedArmor = Array.isArray(rawArmor) ? rawArmor : Object.values(rawArmor);
         cachedArmor.forEach(a => {
-          if (a.hash) armorByHash.set(Number(a.hash), a);
+          const h = a.hash || a.id;
+          if (h) {
+            a.hash = h;
+            armorByHash.set(Number(h), a);
+          }
+          if (a.name) {
+            armorByName.set(a.name.toLowerCase().trim(), a);
+          }
         });
       }
 
@@ -61,8 +77,14 @@ export async function initClientManifest(onProgress) {
         const rawPerks = await pRes.json();
         cachedPerks = Array.isArray(rawPerks) ? rawPerks : Object.values(rawPerks);
         cachedPerks.forEach(p => {
-          if (p.hash) perksByHash.set(Number(p.hash), p);
-          if (p.name) perksByName.set(p.name.toLowerCase().trim(), p);
+          const h = p.hash || p.id;
+          if (h) {
+            p.hash = h;
+            perksByHash.set(Number(h), p);
+          }
+          if (p.name) {
+            perksByName.set(p.name.toLowerCase().trim(), p);
+          }
         });
       }
 
@@ -289,9 +311,19 @@ export function getPerkByHash(hash) {
 }
 
 export function getClientItemByHash(hash) {
+  if (!hash) return null;
   const numHash = Number(hash);
   if (weaponsByHash.has(numHash)) return weaponsByHash.get(numHash);
   if (armorByHash.has(numHash)) return armorByHash.get(numHash);
   if (perksByHash.has(numHash)) return perksByHash.get(numHash);
+  return null;
+}
+
+export function getClientItemByName(name) {
+  if (!name) return null;
+  const clean = name.toLowerCase().trim();
+  if (weaponsByName.has(clean)) return weaponsByName.get(clean);
+  if (armorByName.has(clean)) return armorByName.get(clean);
+  if (perksByName.has(clean)) return perksByName.get(clean);
   return null;
 }

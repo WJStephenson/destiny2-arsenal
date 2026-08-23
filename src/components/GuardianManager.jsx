@@ -20,7 +20,7 @@ import {
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
-import { getClientItemByHash, initClientManifest } from '../utils/client-manifest';
+import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
 
 export default function GuardianManager({ 
@@ -148,7 +148,7 @@ export default function GuardianManager({
 
     function enrichItem(it) {
       const hash = it.itemHash;
-      const localDef = getClientItemByHash(hash);
+      const localDef = getClientItemByHash(hash) || (defs[hash]?.name ? getClientItemByName(defs[hash].name) : null);
       const def = localDef || defs[hash] || {};
       const inst = it.itemInstanceId ? instances[it.itemInstanceId] : null;
       const sock = it.itemInstanceId ? socketsMap[it.itemInstanceId] : null;
@@ -185,18 +185,27 @@ export default function GuardianManager({
         itemHash: it.itemHash,
         bucketHash: it.bucketHash,
         slot: detectedSlot,
+        ammoType: def.ammoType,
         name: def.name || `Item #${hash}`,
         icon: def.icon || null,
         iconWatermark: def.iconWatermark || null,
+        screenshot: def.screenshot || null,
         power: inst?.primaryStat?.value || null,
         tierTypeName: def.tierTypeName || 'Legendary',
         damageType: def.damageType || 'Kinetic',
         itemTypeDisplayName: def.itemTypeDisplayName || (def.isWeapon ? 'Weapon' : def.isArmor ? 'Armour' : ''),
-        weaponType: def.isWeapon ? def.itemTypeDisplayName : null,
-        armorSlot: def.isArmor ? def.itemTypeDisplayName : null,
+        weaponType: def.isWeapon ? (def.weaponType || def.itemTypeDisplayName) : null,
+        armorSlot: def.isArmor ? (def.armorSlot || def.itemTypeDisplayName) : null,
         isWeapon: def.isWeapon || def.weaponType != null || [1498876634, 2465295065, 953998645].includes(it.bucketHash),
         isArmor: def.isArmor || def.armorSlot != null || [3448274439, 3551901077, 1423949262, 20886954, 1585787867].includes(it.bucketHash),
         baseItem: def,
+        socketColumns: def.socketColumns || [],
+        statsList: def.statsList || [],
+        intrinsic: def.intrinsic || null,
+        flavorText: def.flavorText || '',
+        sourceString: def.sourceString || '',
+        sourceCategory: def.sourceCategory || '',
+        isCraftable: def.isCraftable || false,
         perks
       };
     }
