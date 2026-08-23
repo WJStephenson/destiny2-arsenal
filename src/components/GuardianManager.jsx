@@ -849,8 +849,8 @@ export default function GuardianManager({
           </div>
         </div>
 
-        {/* Character Emblem Banners */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {/* Character Emblem Banners (3-column responsive row on mobile & desktop) */}
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
           {profileData?.characters?.map((char, idx) => {
             const isSelected = selectedCharacterIndex === idx;
             return (
@@ -862,27 +862,26 @@ export default function GuardianManager({
                   backgroundSize: 'cover',
                   backgroundPosition: 'center'
                 }}
-                className={`relative h-18 rounded-xl overflow-hidden cursor-pointer p-3 flex items-center justify-between border-2 transition-all shadow-lg ${
+                className={`relative h-14 sm:h-18 rounded-xl overflow-hidden cursor-pointer p-2 sm:p-3 flex items-center justify-between border-2 transition-all shadow-md ${
                   isSelected 
                     ? 'border-amber-400 ring-2 ring-amber-400/30 scale-[1.01]' 
-                    : 'border-slate-800 opacity-75 hover:opacity-100 hover:border-slate-600'
+                    : 'border-slate-800 opacity-70 hover:opacity-100 hover:border-slate-600'
                 }`}
               >
-                <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent pointer-events-none" />
+                <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/50 to-transparent pointer-events-none" />
                 
-                <div className="relative z-10 space-y-0.5">
-                  <div className="text-base sm:text-lg font-bold text-white font-heading uppercase tracking-wide drop-shadow">
+                <div className="relative z-10 space-y-0.5 min-w-0 pr-1">
+                  <div className="text-xs sm:text-base font-bold text-white font-heading uppercase tracking-wide drop-shadow truncate">
                     {char.classType}
                   </div>
-                  <div className="text-xs text-amber-300 font-mono font-bold flex items-center gap-1 drop-shadow">
-                    <Sparkles className="w-3 h-3 text-amber-400" />
-                    <span>✧ {char.light} Power</span>
+                  <div className="text-[10px] sm:text-xs text-amber-300 font-mono font-bold flex items-center gap-1 drop-shadow truncate">
+                    <span>✧ {char.light}</span>
                   </div>
                 </div>
 
                 {isSelected && (
-                  <div className="relative z-10 w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg font-bold">
-                    <Check className="w-3.5 h-3.5" />
+                  <div className="relative z-10 w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg font-bold flex-shrink-0">
+                    <Check className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                   </div>
                 )}
               </div>

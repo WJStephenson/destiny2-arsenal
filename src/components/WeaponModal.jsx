@@ -59,9 +59,12 @@ export default function WeaponModal({
   const barStats = allStats.filter(s => !discreteStatNames.includes(s.name));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-4xl bg-[#121722] border border-[#28354d] rounded-2xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
+      <div className="relative w-full max-w-4xl bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[90vh] flex flex-col animate-fadeIn">
         
+        {/* Mobile Pull/Drag Handle */}
+        <div className="sm:hidden w-12 h-1.5 bg-slate-600/70 rounded-full mx-auto my-2.5 flex-shrink-0 z-30" />
+
         {/* Top Header Card with Screenshot / Gradient Background */}
         <div className="relative bg-slate-900 overflow-hidden flex-shrink-0 border-b border-[#20293a]">
           {weapon.screenshot && (

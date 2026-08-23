@@ -1,121 +1,204 @@
 import React from 'react';
-import { X, Shield, Crown, Sparkles } from 'lucide-react';
+import { X, Shield, Crown, Sparkles, Award, Layers } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
+import LongPressable from './LongPressable';
 
-export default function ArmorModal({ armor, onClose }) {
+export default function ArmorModal({ armor, onClose, onOpenInfo }) {
   if (!armor) return null;
   const tierInfo = getTierInfo(armor.tierTypeName);
 
+  // Frontiers 6-Stats: WEAP, HLTH, CLAS, GREN, SUPR, MELE
+  const statConfig = [
+    { key: 'weapons', legacyKey: 'mobility', label: 'Weapons', short: 'WEAP', color: 'text-sky-400', barBg: 'bg-sky-400' },
+    { key: 'health', legacyKey: 'resilience', label: 'Health', short: 'HLTH', color: 'text-emerald-400', barBg: 'bg-emerald-400' },
+    { key: 'classAbility', legacyKey: 'recovery', label: 'Class', short: 'CLAS', color: 'text-amber-400', barBg: 'bg-amber-400' },
+    { key: 'grenade', legacyKey: 'discipline', label: 'Grenade', short: 'GREN', color: 'text-indigo-400', barBg: 'bg-indigo-400' },
+    { key: 'superAbility', legacyKey: 'intellect', label: 'Super', short: 'SUPR', color: 'text-purple-400', barBg: 'bg-purple-400' },
+    { key: 'melee', legacyKey: 'strength', label: 'Melee', short: 'MELE', color: 'text-rose-400', barBg: 'bg-rose-400' }
+  ];
+
+  const getStatVal = (st) => {
+    if (armor.armorStats) {
+      return armor.armorStats[st.key] ?? armor.armorStats[st.legacyKey] ?? 0;
+    }
+    if (armor.stats) {
+      return armor.stats[st.label] ?? armor.stats[st.legacyKey] ?? armor.stats[st.key] ?? 0;
+    }
+    return 0;
+  };
+
+  const statTotal = armor.armorStats?.total || (armor.stats?.Total ?? armor.stats?.total) || 
+    statConfig.reduce((acc, st) => acc + getStatVal(st), 0);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-[#121722] border border-[#28354d] rounded-2xl shadow-2xl overflow-hidden my-8 flex flex-col">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+      
+      {/* Mobile Bottom Sheet / Desktop Centered Card */}
+      <div className="relative w-full max-w-2xl bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[90vh] flex flex-col">
         
+        {/* Mobile Pull/Drag Handle */}
+        <div className="sm:hidden w-12 h-1.5 bg-slate-600/70 rounded-full mx-auto my-2.5 flex-shrink-0" />
+
         {/* Header */}
-        <div className={`p-6 ${tierInfo.headerBg} border-b border-[#20293a]`}>
+        <div className={`p-4 sm:p-5 ${tierInfo.headerBg} border-b border-[#20293a] relative flex-shrink-0`}>
           <button
             onClick={onClose}
-            className="absolute top-4 right-4 p-2 rounded-full bg-black/60 hover:bg-black/80 text-slate-300 hover:text-white transition-colors"
+            className="absolute top-3.5 right-3.5 p-2 rounded-full bg-black/60 hover:bg-black/90 text-slate-300 hover:text-white transition-colors z-10"
+            title="Close"
           >
             <X className="w-5 h-5" />
           </button>
 
-          <div className="flex items-center gap-4">
-            <div className="w-20 h-20 rounded-xl bg-black/60 border-2 border-white/20 overflow-hidden flex-shrink-0">
+          <div className="flex items-start gap-3.5 pr-10">
+            <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl bg-black/60 border-2 border-white/20 overflow-hidden flex-shrink-0 shadow-md">
               {armor.icon ? (
                 <img src={armor.icon} alt={armor.name} className="w-full h-full object-cover" />
               ) : (
                 <Shield className="w-8 h-8 text-slate-500 m-auto" />
               )}
+              {armor.isArtifice && (
+                <div className="absolute top-0 right-0 w-4 h-4 bg-indigo-500 rounded-bl text-[8px] flex items-center justify-center font-bold text-white">
+                  A
+                </div>
+              )}
             </div>
 
-            <div>
-              <div className="flex items-center gap-2">
-                <span className={`text-xs font-mono px-2 py-0.5 rounded font-bold uppercase ${tierInfo.bg} ${tierInfo.text}`}>
+            <div className="min-w-0 flex-1 space-y-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={`text-[10px] sm:text-xs font-mono px-2 py-0.5 rounded font-bold uppercase ${tierInfo.bg} ${tierInfo.text}`}>
                   {armor.tierTypeName}
                 </span>
-                <span className="text-xs font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40">
+                <span className="text-[10px] sm:text-xs font-mono px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold">
                   {armor.classType}
                 </span>
-                <span className="text-xs font-mono text-slate-400">
-                  {armor.armorSlot}
+                <span className="text-[10px] sm:text-xs font-mono text-slate-400">
+                  {armor.armorSlot || armor.itemTypeDisplayName}
                 </span>
+                {armor.power && (
+                  <span className="text-[10px] sm:text-xs font-mono text-amber-400 font-bold">
+                    ✧ {armor.power}
+                  </span>
+                )}
               </div>
 
-              <h2 className="text-2xl font-bold text-white font-heading tracking-wide mt-1">
+              <h2 className="text-lg sm:text-xl font-bold text-white font-heading tracking-wide truncate">
                 {armor.name}
               </h2>
+
+              {armor.setName && (
+                <div className="flex items-center gap-1.5 text-xs font-mono text-amber-400 truncate">
+                  <Layers className="w-3.5 h-3.5 flex-shrink-0" />
+                  <span className="truncate">{armor.setName}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Body */}
-        <div className="p-6 space-y-6 overflow-y-auto max-h-[60vh]">
+        {/* Scrollable Body */}
+        <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+          
+          {/* Flavor Text */}
           {armor.flavorText && (
-            <p className="text-sm italic text-slate-400 border-l-2 border-purple-500/50 pl-3">
+            <p className="text-xs sm:text-sm italic text-slate-400 border-l-2 border-amber-500/60 pl-3 leading-relaxed">
               "{armor.flavorText}"
             </p>
           )}
 
+          {/* Armor Set Intrinsic Perk (if present) */}
+          {armor.setIntrinsicPerk && (
+            <div className="p-3 rounded-xl bg-[#0b0e14] border border-amber-500/30 space-y-1">
+              <span className="text-[10px] font-mono font-bold text-amber-400 uppercase tracking-wider block">
+                ✧ Set Intrinsic Perk
+              </span>
+              <p className="text-xs font-mono text-slate-200 leading-relaxed">
+                {armor.setIntrinsicPerk}
+              </p>
+            </div>
+          )}
+
           {/* Exotic Perk Box */}
           {armor.exoticPerk && (
-            <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-2">
-              <div className="flex items-center gap-2 font-bold text-amber-300 font-heading text-base">
+            <div className="p-3.5 sm:p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 space-y-1.5">
+              <div className="flex items-center gap-1.5 font-bold text-amber-300 font-heading text-sm sm:text-base">
                 <Crown className="w-4 h-4 text-amber-400" />
                 <span>{armor.exoticPerk.name}</span>
-                <span className="text-xs font-mono text-slate-400 uppercase font-normal">(Exotic Intrinsic Armor Perk)</span>
+                <span className="text-[10px] font-mono text-slate-400 uppercase font-normal">(Exotic Perk)</span>
               </div>
-              <p className="text-sm text-slate-200 leading-relaxed">
+              <p className="text-xs sm:text-sm text-slate-200 leading-relaxed">
                 {armor.exoticPerk.description}
               </p>
             </div>
           )}
 
-          {/* Stats Sheet */}
-          {armor.stats && (
-            <div className="space-y-3">
-              <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-                Base Stat Roll Distribution
+          {/* Active Rolled Perks / Mods (if on character) */}
+          {armor.perks && armor.perks.length > 0 && (
+            <div className="space-y-2">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider font-heading">
+                Equipped Perks & Mods
               </h3>
-
-              <div className="grid grid-cols-2 gap-3 bg-[#0b0e14] border border-[#20293a] rounded-xl p-4">
-                {['Mobility', 'Resilience', 'Recovery', 'Discipline', 'Intellect', 'Strength'].map((stat) => {
-                  const val = armor.stats[stat] || 0;
-                  const pct = Math.min(100, Math.max(0, (val / 30) * 100));
+              <div className="flex flex-wrap gap-2">
+                {armor.perks.map((p, pIdx) => {
+                  const pObj = typeof p === 'object' ? p : { name: p };
                   return (
-                    <div key={stat} className="space-y-1 text-xs">
-                      <div className="flex justify-between font-mono">
-                        <span className="text-slate-400">{stat}</span>
-                        <span className="text-slate-100 font-bold">{val}</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                        <div 
-                          className="h-full bg-purple-400 rounded-full"
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
+                    <LongPressable
+                      key={pIdx}
+                      onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                      onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0b0e14] text-slate-200 text-xs font-mono border border-slate-700/80 hover:border-amber-500/50 cursor-pointer group shadow-sm"
+                      title={pObj.name}
+                    >
+                      {pObj.icon && <img src={pObj.icon} alt="" className="w-4 h-4 rounded" />}
+                      <span className="group-hover:text-amber-300">{pObj.name}</span>
+                    </LongPressable>
                   );
                 })}
               </div>
-
-              {armor.stats.Total > 0 && (
-                <div className="p-3 bg-[#0b0e14] border border-[#20293a] rounded-xl flex items-center justify-between text-xs font-mono">
-                  <span className="text-slate-400">Total Base Stat Points:</span>
-                  <span className="text-lg font-bold text-purple-300">{armor.stats.Total}</span>
-                </div>
-              )}
             </div>
           )}
-        </div>
 
-        {/* Footer */}
-        <div className="p-4 bg-[#0b0e14] border-t border-[#20293a] flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium"
-          >
-            Close
-          </button>
+          {/* Frontiers 6-Stats Sheet */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider font-heading">
+                Armour Stat Distribution (Frontiers)
+              </h3>
+              {statTotal > 0 && (
+                <span className="text-xs font-mono font-bold text-amber-400">
+                  Total: {statTotal}
+                </span>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-[#0b0e14] border border-[#20293a] rounded-xl p-3.5">
+              {statConfig.map((st) => {
+                const val = getStatVal(st);
+                const pct = Math.min(100, Math.max(0, (val / 35) * 100));
+                return (
+                  <div key={st.key} className="space-y-1 text-xs">
+                    <div className="flex justify-between font-mono">
+                      <span className={`font-bold ${st.color}`}>{st.short} • {st.label}</span>
+                      <span className="text-white font-bold">{val}</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                      <div 
+                        className={`h-full rounded-full ${st.barBg}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Source Info */}
+          {armor.sourceString && (
+            <p className="text-xs text-slate-400 italic">
+              Source: {armor.sourceString}
+            </p>
+          )}
+
         </div>
 
       </div>
