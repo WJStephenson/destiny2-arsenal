@@ -9,6 +9,7 @@ import {
   Filter
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
+import { searchPerksClient } from '../utils/client-manifest';
 
 export default function PerkEncyclopedia({ onSelectWeapon }) {
   const [perks, setPerks] = useState([]);
@@ -24,27 +25,21 @@ export default function PerkEncyclopedia({ onSelectWeapon }) {
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchPerks();
-    }, 150);
-    return () => clearTimeout(timer);
+    fetchPerks();
   }, [search, category, page]);
 
   const fetchPerks = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (category && category !== 'All') params.append('category', category);
-      params.append('page', page);
-      params.append('limit', '40');
+      const allMatching = searchPerksClient(search, category);
+      const total = allMatching.length;
+      const limit = 40;
+      const totalPages = Math.ceil(total / limit) || 1;
+      const paginated = allMatching.slice((page - 1) * limit, page * limit);
 
-      const res = await fetch(`/api/perks?${params.toString()}`);
-      const data = await res.json();
-
-      setPerks(data.items || []);
-      setTotalCount(data.total || 0);
-      setTotalPages(data.totalPages || 1);
+      setPerks(paginated);
+      setTotalCount(total);
+      setTotalPages(totalPages);
     } catch (err) {
       console.error('Error fetching perks:', err);
     } finally {

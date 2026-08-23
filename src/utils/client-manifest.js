@@ -1,0 +1,279 @@
+let cachedWeapons = null;
+let cachedArmor = null;
+let cachedPerks = null;
+let cachedFilters = null;
+
+let weaponsByHash = new Map();
+let armorByHash = new Map();
+let perksByHash = new Map();
+
+let loadPromise = null;
+
+export async function initClientManifest(onProgress) {
+  if (cachedWeapons && cachedArmor && cachedPerks) {
+    return {
+      weaponsCount: cachedWeapons.length,
+      armorCount: cachedArmor.length,
+      perksCount: cachedPerks.length
+    };
+  }
+
+  if (loadPromise) return loadPromise;
+
+  loadPromise = (async () => {
+    try {
+      if (onProgress) onProgress('Loading Destiny 2 Armory...');
+
+      // 1. Fetch filters metadata first (fast)
+      try {
+        const fRes = await fetch('/data/filters.json');
+        if (fRes.ok) cachedFilters = await fRes.json();
+      } catch (e) {}
+
+      // 2. Fetch weapons, armor, perks in parallel
+      const [wRes, aRes, pRes] = await Promise.all([
+        fetch('/data/weapons.json'),
+        fetch('/data/armor.json'),
+        fetch('/data/perks.json')
+      ]);
+
+      if (wRes.ok) {
+        cachedWeapons = await wRes.json();
+        cachedWeapons.forEach(w => {
+          if (w.hash) weaponsByHash.set(Number(w.hash), w);
+        });
+      }
+
+      if (aRes.ok) {
+        cachedArmor = await aRes.json();
+        cachedArmor.forEach(a => {
+          if (a.hash) armorByHash.set(Number(a.hash), a);
+        });
+      }
+
+      if (pRes.ok) {
+        cachedPerks = await pRes.json();
+        cachedPerks.forEach(p => {
+          if (p.hash) perksByHash.set(Number(p.hash), p);
+        });
+      }
+
+      return {
+        weaponsCount: cachedWeapons?.length || 0,
+        armorCount: cachedArmor?.length || 0,
+        perksCount: cachedPerks?.length || 0
+      };
+    } catch (err) {
+      console.error('Error initializing client manifest:', err);
+      return { weaponsCount: 0, armorCount: 0, perksCount: 0 };
+    }
+  })();
+
+  return loadPromise;
+}
+
+export function getFiltersMetadata() {
+  if (cachedFilters) return cachedFilters;
+  return {
+    weaponTypes: [
+      'Hand Cannon', 'Auto Rifle', 'Pulse Rifle', 'Scout Rifle', 'Submachine Gun',
+      'Sidearm', 'Bow', 'Shotgun', 'Fusion Rifle', 'Sniper Rifle', 'Linear Fusion Rifle',
+      'Grenade Launcher', 'Rocket Launcher', 'Machine Gun', 'Sword', 'Glaive', 'Trace Rifle'
+    ],
+    damageTypes: ['Solar', 'Arc', 'Void', 'Stasis', 'Strand', 'Kinetic'],
+    slots: ['Kinetic', 'Energy', 'Power'],
+    ammoTypes: ['Primary', 'Special', 'Heavy'],
+    tiers: ['Exotic', 'Legendary', 'Rare', 'Common'],
+    sourceCategories: [
+      'Raid', 'Dungeon', 'Nightfall / Vanguard', 'Trials of Osiris',
+      'Iron Banner', 'Crucible', 'Into the Light / Onslaught',
+      'Exotic Quest / Archive', 'Seasonal / Episode', 'World Drop'
+    ],
+    popularPerks: [
+      'Incandescent', 'Voltshot', 'Kinetic Tremors', 'Bait and Switch',
+      'Destabilizing Rounds', 'Precision Instrument', 'Reconstruction', 'Rewind Rounds',
+      'Heal Clip', 'Firefly', 'Explosive Payload', 'Demolitionist',
+      'Frenzy', 'Target Lock', 'Hatchling', 'Headstone'
+    ]
+  };
+}
+
+export async function searchWeaponsClient(filters = {}) {
+  await initClientManifest();
+  if (!cachedWeapons) return { total: 0, items: [], totalPages: 1 };
+
+  let results = [...cachedWeapons];
+
+  // 1. Text search
+  if (filters.search && filters.search.trim()) {
+    const q = filters.search.trim().toLowerCase();
+    results = results.filter(w => 
+      w.name.toLowerCase().includes(q) ||
+      (w.weaponType && w.weaponType.toLowerCase().includes(q)) ||
+      (w.sourceString && w.sourceString.toLowerCase().includes(q)) ||
+      (w.intrinsic?.name && w.intrinsic.name.toLowerCase().includes(q))
+    );
+  }
+
+  // 2. Weapon Types
+  if (filters.weaponType && filters.weaponType.length > 0) {
+    const types = Array.isArray(filters.weaponType) ? filters.weaponType : filters.weaponType.split(',');
+    results = results.filter(w => types.includes(w.weaponType) || types.includes(w.itemTypeDisplayName));
+  }
+
+  // 3. Damage Types
+  if (filters.damageType && filters.damageType.length > 0) {
+    const dmgs = Array.isArray(filters.damageType) ? filters.damageType : filters.damageType.split(',');
+    results = results.filter(w => dmgs.includes(w.damageType));
+  }
+
+  // 4. Slots
+  if (filters.slot && filters.slot.length > 0) {
+    const slots = Array.isArray(filters.slot) ? filters.slot : filters.slot.split(',');
+    results = results.filter(w => slots.includes(w.slot));
+  }
+
+  // 5. Tiers / Rarities
+  if (filters.tier && filters.tier.length > 0) {
+    const tiers = Array.isArray(filters.tier) ? filters.tier : filters.tier.split(',');
+    results = results.filter(w => tiers.includes(w.tierTypeName));
+  }
+
+  // 6. Ammo Types
+  if (filters.ammoType && filters.ammoType.length > 0) {
+    const ammos = Array.isArray(filters.ammoType) ? filters.ammoType : filters.ammoType.split(',');
+    results = results.filter(w => ammos.includes(w.ammoType));
+  }
+
+  // 7. Source Categories
+  if (filters.sourceCategory && filters.sourceCategory.length > 0) {
+    const srcs = Array.isArray(filters.sourceCategory) ? filters.sourceCategory : filters.sourceCategory.split(',');
+    results = results.filter(w => srcs.includes(w.sourceCategory));
+  }
+
+  // 8. Craftable
+  if (filters.craftable === true || filters.craftable === 'true') {
+    results = results.filter(w => w.isCraftable);
+  }
+
+  // 9. Perks Match
+  if (filters.perks && filters.perks.length > 0) {
+    const reqPerks = Array.isArray(filters.perks) ? filters.perks : filters.perks.split(',');
+    const matchMode = filters.perkMatchMode || 'and';
+
+    results = results.filter(w => {
+      const weaponPerksLower = (w.allPerkNames || []).map(p => p.toLowerCase());
+      if (matchMode === 'and') {
+        return reqPerks.every(rp => weaponPerksLower.includes(rp.toLowerCase()));
+      } else {
+        return reqPerks.some(rp => weaponPerksLower.includes(rp.toLowerCase()));
+      }
+    });
+  }
+
+  // Sorting
+  const sortBy = filters.sortBy || 'name';
+  const sortDir = filters.sortDir || 'asc';
+  results.sort((a, b) => {
+    let valA = a[sortBy] ?? '';
+    let valB = b[sortBy] ?? '';
+    if (typeof valA === 'string') {
+      return sortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+    }
+    return sortDir === 'asc' ? valA - valB : valB - valA;
+  });
+
+  const total = results.length;
+  const page = parseInt(filters.page || 1, 10);
+  const limit = parseInt(filters.limit || 48, 10);
+  const totalPages = Math.ceil(total / limit) || 1;
+  const paginated = results.slice((page - 1) * limit, page * limit);
+
+  return { total, page, totalPages, limit, items: paginated };
+}
+
+export async function searchArmorClient(filters = {}) {
+  await initClientManifest();
+  if (!cachedArmor) return { total: 0, items: [], totalPages: 1 };
+
+  let results = [...cachedArmor];
+
+  if (filters.search && filters.search.trim()) {
+    const q = filters.search.trim().toLowerCase();
+    results = results.filter(a => a.name.toLowerCase().includes(q) || (a.exoticPerk?.name && a.exoticPerk.name.toLowerCase().includes(q)));
+  }
+
+  if (filters.classType && filters.classType !== 'All') {
+    results = results.filter(a => a.classType === filters.classType);
+  }
+
+  if (filters.slot && filters.slot !== 'All') {
+    results = results.filter(a => a.slot === filters.slot);
+  }
+
+  if (filters.tier && filters.tier !== 'All') {
+    results = results.filter(a => a.tierTypeName === filters.tier);
+  }
+
+  const total = results.length;
+  const page = parseInt(filters.page || 1, 10);
+  const limit = parseInt(filters.limit || 36, 10);
+  const totalPages = Math.ceil(total / limit) || 1;
+  const paginated = results.slice((page - 1) * limit, page * limit);
+
+  return { total, page, totalPages, limit, items: paginated };
+}
+
+export function getSuggestionsClient(query) {
+  if (!query || !query.trim() || !cachedWeapons) {
+    return { weapons: [], archetypes: [], sources: [], weaponTypes: [] };
+  }
+
+  const q = query.trim().toLowerCase();
+
+  const matchingWeapons = cachedWeapons
+    .filter(w => w.name.toLowerCase().includes(q))
+    .slice(0, 5);
+
+  const archetypesSet = new Set();
+  const sourcesSet = new Set();
+  const weaponTypesSet = new Set();
+
+  cachedWeapons.forEach(w => {
+    if (w.intrinsic?.name && w.intrinsic.name.toLowerCase().includes(q)) {
+      archetypesSet.add(w.intrinsic.name);
+    }
+    if (w.sourceString && w.sourceString.toLowerCase().includes(q)) {
+      sourcesSet.add(w.sourceString);
+    }
+    if (w.weaponType && w.weaponType.toLowerCase().includes(q)) {
+      weaponTypesSet.add(w.weaponType);
+    }
+  });
+
+  return {
+    weapons: matchingWeapons,
+    archetypes: Array.from(archetypesSet).slice(0, 6),
+    sources: Array.from(sourcesSet).slice(0, 5),
+    weaponTypes: Array.from(weaponTypesSet).slice(0, 5)
+  };
+}
+
+export function searchPerksClient(query = '', type = 'all') {
+  if (!cachedPerks) return [];
+  const q = query.toLowerCase().trim();
+
+  return cachedPerks.filter(p => {
+    if (type !== 'all' && p.category !== type) return false;
+    if (q) return p.name.toLowerCase().includes(q) || (p.description && p.description.toLowerCase().includes(q));
+    return true;
+  });
+}
+
+export function getClientItemByHash(hash) {
+  const numHash = Number(hash);
+  if (weaponsByHash.has(numHash)) return weaponsByHash.get(numHash);
+  if (armorByHash.has(numHash)) return armorByHash.get(numHash);
+  if (perksByHash.has(numHash)) return perksByHash.get(numHash);
+  return null;
+}

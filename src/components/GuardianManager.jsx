@@ -26,6 +26,7 @@ import {
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
+import { getClientItemByHash, initClientManifest } from '../utils/client-manifest';
 
 export default function GuardianManager({ 
   onSelectWeapon, 
@@ -156,16 +157,17 @@ export default function GuardianManager({
 
     function enrichItem(it) {
       const hash = it.itemHash;
-      const def = defs[hash] || {};
+      const localDef = getClientItemByHash(hash);
+      const def = localDef || defs[hash] || {};
       const inst = it.itemInstanceId ? instances[it.itemInstanceId] : null;
       const sock = it.itemInstanceId ? socketsMap[it.itemInstanceId] : null;
 
       const perks = [];
       if (sock && sock.sockets) {
         sock.sockets.forEach(s => {
-          if (s.plugHash && s.isVisible && defs[s.plugHash]) {
-            const pDef = defs[s.plugHash];
-            if (pDef.name && !pDef.name.includes('Empty') && !pDef.name.includes('Tracker') && !pDef.name.includes('Kill') && !pDef.name.includes('Default') && !pDef.name.includes('Shader')) {
+          if (s.plugHash && s.isVisible) {
+            const pDef = getClientItemByHash(s.plugHash) || defs[s.plugHash];
+            if (pDef && pDef.name && !pDef.name.includes('Empty') && !pDef.name.includes('Tracker') && !pDef.name.includes('Kill') && !pDef.name.includes('Default') && !pDef.name.includes('Shader')) {
               perks.push(pDef.name);
             }
           }
@@ -184,8 +186,9 @@ export default function GuardianManager({
         itemTypeDisplayName: def.itemTypeDisplayName || (def.isWeapon ? 'Weapon' : def.isArmor ? 'Armor' : ''),
         weaponType: def.isWeapon ? def.itemTypeDisplayName : null,
         armorSlot: def.isArmor ? def.itemTypeDisplayName : null,
-        isWeapon: def.isWeapon,
-        isArmor: def.isArmor,
+        isWeapon: def.isWeapon || def.weaponType != null,
+        isArmor: def.isArmor || def.armorSlot != null,
+        baseItem: def,
         perks
       };
     }

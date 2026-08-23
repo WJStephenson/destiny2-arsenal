@@ -11,6 +11,7 @@ import {
   Crown
 } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
+import { searchArmorClient } from '../utils/client-manifest';
 
 export default function ArmorFinder({ onSelectArmor }) {
   const [armorList, setArmorList] = useState([]);
@@ -27,26 +28,20 @@ export default function ArmorFinder({ onSelectArmor }) {
   const [hasExoticPerk, setHasExoticPerk] = useState(false);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchArmor();
-    }, 150);
-    return () => clearTimeout(timer);
+    fetchArmor();
   }, [search, selectedClasses, selectedSlots, selectedTiers, hasExoticPerk, page]);
 
   const fetchArmor = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (selectedClasses.length > 0) params.append('classType', selectedClasses.join(','));
-      if (selectedSlots.length > 0) params.append('armorSlot', selectedSlots.join(','));
-      if (selectedTiers.length > 0) params.append('tier', selectedTiers.join(','));
-      if (hasExoticPerk) params.append('hasExoticPerk', 'true');
-      params.append('page', page);
-      params.append('limit', '48');
-
-      const res = await fetch(`/api/armor?${params.toString()}`);
-      const data = await res.json();
+      const data = await searchArmorClient({
+        search,
+        classType: selectedClasses.length === 1 ? selectedClasses[0] : 'All',
+        slot: selectedSlots.length === 1 ? selectedSlots[0] : 'All',
+        tier: selectedTiers.length === 1 ? selectedTiers[0] : 'All',
+        page,
+        limit: 48
+      });
 
       setArmorList(data.items || []);
       setTotalCount(data.total || 0);

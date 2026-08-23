@@ -14,6 +14,7 @@ import InfoDrawer from './components/InfoDrawer';
 import MobileBottomNav from './components/MobileBottomNav';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import { getSavedWishlists, saveWishlistRoll, removeWishlistRoll } from './utils/destiny-helpers';
+import { initClientManifest, getFiltersMetadata } from './utils/client-manifest';
 import { 
   getStoredSettings, 
   getStoredAuthSession, 
@@ -58,10 +59,24 @@ export default function App() {
 
   // Load initial status, metadata & auth session
   useEffect(() => {
-    fetchStatus();
-    fetchFilters();
+    setFiltersMetadata(getFiltersMetadata());
     checkAuthSession();
     setWishlists(getSavedWishlists());
+
+    initClientManifest().then(counts => {
+      if (counts && counts.weaponsCount > 0) {
+        setManifestStatus({
+          status: 'ready',
+          weaponsCount: counts.weaponsCount,
+          armorCount: counts.armorCount,
+          perksCount: counts.perksCount
+        });
+        setFiltersMetadata(getFiltersMetadata());
+      }
+    });
+
+    fetchStatus();
+    fetchFilters();
 
     try {
       const savedCompare = sessionStorage.getItem('destiny2_compare_list');
@@ -74,17 +89,11 @@ export default function App() {
       const res = await fetch('/api/status');
       if (res.ok) {
         const data = await res.json();
-        setManifestStatus(data);
-        if (data.status === 'downloading' || data.status === 'indexing' || data.status === 'extracting') {
-          setIsSyncing(true);
-          setTimeout(fetchStatus, 1500);
-        } else {
-          setIsSyncing(false);
+        if (data && data.weaponsCount) {
+          setManifestStatus(data);
         }
       }
-    } catch (e) {
-      console.error('Error fetching manifest status:', e);
-    }
+    } catch (e) {}
   };
 
   const fetchFilters = async () => {
@@ -92,11 +101,11 @@ export default function App() {
       const res = await fetch('/api/filters');
       if (res.ok) {
         const data = await res.json();
-        setFiltersMetadata(data);
+        if (data && data.weaponTypes) {
+          setFiltersMetadata(data);
+        }
       }
-    } catch (e) {
-      console.error('Error fetching filters:', e);
-    }
+    } catch (e) {}
   };
 
   const checkAuthSession = async () => {

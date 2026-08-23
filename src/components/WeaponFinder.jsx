@@ -26,6 +26,7 @@ import {
   Info
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery } from '../utils/destiny-helpers';
+import { searchWeaponsClient, getSuggestionsClient } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
 
 export default function WeaponFinder({ 
@@ -97,25 +98,13 @@ export default function WeaponFinder({
       return;
     }
 
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/suggestions?q=${encodeURIComponent(search.trim())}`);
-        const data = await res.json();
-        setSuggestions(data);
-      } catch (e) {
-        console.error('Error fetching suggestions:', e);
-      }
-    }, 100);
-
-    return () => clearTimeout(timer);
+    const data = getSuggestionsClient(search.trim());
+    setSuggestions(data);
   }, [search]);
 
   // Fetch weapons when filters change
   useEffect(() => {
-    const timer = setTimeout(() => {
-      fetchWeapons();
-    }, 150);
-    return () => clearTimeout(timer);
+    fetchWeapons();
   }, [
     search, 
     selectedWeaponTypes, 
@@ -138,30 +127,25 @@ export default function WeaponFinder({
   const fetchWeapons = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (search) params.append('search', search);
-      if (selectedWeaponTypes.length > 0) params.append('weaponType', selectedWeaponTypes.join(','));
-      if (selectedDamageTypes.length > 0) params.append('damageType', selectedDamageTypes.join(','));
-      if (selectedSlots.length > 0) params.append('slot', selectedSlots.join(','));
-      if (selectedTiers.length > 0) params.append('tier', selectedTiers.join(','));
-      if (selectedAmmoTypes.length > 0) params.append('ammoType', selectedAmmoTypes.join(','));
-      if (selectedSources.length > 0) params.append('sourceCategory', selectedSources.join(','));
-      if (craftableOnly) params.append('craftable', 'true');
-      if (selectedPerks.length > 0) {
-        params.append('perks', selectedPerks.join(','));
-        params.append('perkMatchMode', perkMatchMode);
-      }
-      if (column3Perk) params.append('column3Perk', column3Perk);
-      if (column4Perk) params.append('column4Perk', column4Perk);
-      if (originTrait) params.append('originTrait', originTrait);
-
-      params.append('sortBy', sortBy);
-      params.append('sortDir', sortDir);
-      params.append('page', page);
-      params.append('limit', '48');
-
-      const res = await fetch(`/api/weapons?${params.toString()}`);
-      const data = await res.json();
+      const data = await searchWeaponsClient({
+        search,
+        weaponType: selectedWeaponTypes,
+        damageType: selectedDamageTypes,
+        slot: selectedSlots,
+        tier: selectedTiers,
+        ammoType: selectedAmmoTypes,
+        sourceCategory: selectedSources,
+        craftable: craftableOnly,
+        perks: selectedPerks,
+        perkMatchMode,
+        column3Perk,
+        column4Perk,
+        originTrait,
+        sortBy,
+        sortDir,
+        page,
+        limit: 48
+      });
 
       setWeapons(data.items || []);
       setTotalCount(data.total || 0);
