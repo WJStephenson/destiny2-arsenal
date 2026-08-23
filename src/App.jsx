@@ -14,6 +14,12 @@ import InfoDrawer from './components/InfoDrawer';
 import MobileBottomNav from './components/MobileBottomNav';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import { getSavedWishlists, saveWishlistRoll, removeWishlistRoll } from './utils/destiny-helpers';
+import { 
+  getStoredSettings, 
+  getStoredAuthSession, 
+  saveStoredAuthSession, 
+  clearStoredAuthSession 
+} from './utils/auth-storage';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('weapons');
@@ -21,8 +27,8 @@ export default function App() {
   const [filtersMetadata, setFiltersMetadata] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Auth Session State
-  const [authSession, setAuthSession] = useState(null);
+  // Auth Session State (Instantly restored from browser localStorage!)
+  const [authSession, setAuthSession] = useState(() => getStoredAuthSession());
   const [isOAuthCallback, setIsOAuthCallback] = useState(false);
 
   // Modals & Info Drawer
@@ -66,13 +72,15 @@ export default function App() {
   const fetchStatus = async () => {
     try {
       const res = await fetch('/api/status');
-      const data = await res.json();
-      setManifestStatus(data);
-      if (data.status === 'downloading' || data.status === 'indexing' || data.status === 'extracting') {
-        setIsSyncing(true);
-        setTimeout(fetchStatus, 1500);
-      } else {
-        setIsSyncing(false);
+      if (res.ok) {
+        const data = await res.json();
+        setManifestStatus(data);
+        if (data.status === 'downloading' || data.status === 'indexing' || data.status === 'extracting') {
+          setIsSyncing(true);
+          setTimeout(fetchStatus, 1500);
+        } else {
+          setIsSyncing(false);
+        }
       }
     } catch (e) {
       console.error('Error fetching manifest status:', e);
@@ -82,52 +90,68 @@ export default function App() {
   const fetchFilters = async () => {
     try {
       const res = await fetch('/api/filters');
-      const data = await res.json();
-      setFiltersMetadata(data);
+      if (res.ok) {
+        const data = await res.json();
+        setFiltersMetadata(data);
+      }
     } catch (e) {
       console.error('Error fetching filters:', e);
     }
   };
 
   const checkAuthSession = async () => {
+    const local = getStoredAuthSession();
+    if (local && local.authenticated) {
+      setAuthSession(local);
+    }
     try {
       const res = await fetch('/api/auth/session');
-      const data = await res.json();
-      setAuthSession(data);
-    } catch (e) {
-      console.error('Error checking auth session:', e);
-    }
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.authenticated) {
+          saveStoredAuthSession(data);
+          setAuthSession(data);
+        }
+      }
+    } catch (e) {}
   };
 
   const handleLogin = async () => {
+    // 1. Try local Express backend API
     try {
       const res = await fetch('/api/auth/url');
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        setIsSettingsOpen(true);
-        showToast(data.error || 'Please configure your Bungie OAuth Client ID in Settings first.', 'warning');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.url) {
+          window.location.href = data.url;
+          return;
+        }
       }
-    } catch (e) {
-      console.error('Login error:', e);
+    } catch (e) {}
+
+    // 2. Direct browser OAuth fallback using saved settings
+    const settings = getStoredSettings();
+    if (settings.clientId) {
+      const redirectUri = `${window.location.origin}/oauth/callback`;
+      const state = Math.random().toString(36).substring(2, 15);
+      const url = `https://www.bungie.net/en/OAuth/Authorize?client_id=${settings.clientId}&response_type=code&state=${state}&redirect_uri=${encodeURIComponent(redirectUri)}`;
+      window.location.href = url;
+    } else {
       setIsSettingsOpen(true);
+      showToast('Please configure your Bungie OAuth Client ID in Settings first.', 'warning');
     }
   };
 
   const handleLogout = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      setAuthSession({ authenticated: false });
-      showToast('Logged out from Bungie.net', 'info');
-    } catch (e) {
-      console.error(e);
-    }
+    clearStoredAuthSession();
+    setAuthSession({ authenticated: false, session: null });
+    showToast('Logged out from Bungie.net', 'info');
   };
 
   const handleOAuthComplete = (session) => {
     setIsOAuthCallback(false);
-    setAuthSession({ authenticated: true, session });
+    const updated = saveStoredAuthSession(session);
+    setAuthSession(updated);
     setActiveTab('guardian');
     showToast('Successfully logged in with Bungie.net!', 'success');
   };

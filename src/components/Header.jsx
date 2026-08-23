@@ -9,7 +9,7 @@ import {
   RefreshCw, 
   ExternalLink,
   LogIn,
-  UserCheck
+  Zap
 } from 'lucide-react';
 
 export default function Header({ 
@@ -28,32 +28,32 @@ export default function Header({
     authSession?.session?.user?.destinyMemberships?.[0]?.displayName || null;
 
   return (
-    <header className="sticky top-0 z-40 bg-[#0b0e14]/90 backdrop-blur-md border-b border-[#20293a] px-4 lg:px-8 py-3">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+    <header className="sticky top-0 z-40 bg-[#0b0e14]/90 backdrop-blur-md border-b border-[#20293a] px-3 sm:px-4 lg:px-8 py-2.5 sm:py-3">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
         
         {/* Brand & Manifest Indicator */}
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold font-heading text-lg shadow-sm shadow-amber-500/20">
+        <div className="flex items-center gap-2.5 sm:gap-3">
+          <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 font-bold font-heading text-base sm:text-lg shadow-sm shadow-amber-500/20">
             ⬡
           </div>
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg font-bold text-white tracking-wide font-heading">
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <h1 className="text-base sm:text-lg font-bold text-white tracking-wide font-heading">
                 DESTINY 2 ARSENAL
               </h1>
-              <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono border border-amber-500/40">
-                PRO
+              <span className="text-[9px] sm:text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-mono border border-amber-500/40 font-bold">
+                PWA
               </span>
             </div>
-            <p className="text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
+            <p className="text-[10px] sm:text-[11px] text-slate-400 flex items-center gap-1.5 font-mono">
               <span className={`w-1.5 h-1.5 rounded-full ${isManifestReady ? 'bg-emerald-400' : 'bg-amber-400 animate-pulse'}`} />
-              <span>{isManifestReady ? `${manifestStatus?.weaponsCount || 1392} weapons live` : 'Syncing database...'}</span>
+              <span>{isManifestReady ? `${manifestStatus?.weaponsCount || '1,392'} weapons` : 'Syncing...'}</span>
             </p>
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <nav className="flex items-center gap-1 bg-[#121722] p-1 rounded-xl border border-[#20293a]">
+        {/* Desktop Tab Navigation (Hidden completely on mobile screens!) */}
+        <nav className="hidden md:flex items-center gap-1 bg-[#121722] p-1 rounded-xl border border-[#20293a]">
           
           <button
             onClick={() => setActiveTab('weapons')}
@@ -87,7 +87,7 @@ export default function Header({
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
             }`}
           >
-            <Shield className="w-3.5 h-3.5 text-emerald-400" />
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
             <span>Guardian & Vault</span>
             {authSession?.authenticated && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -145,31 +145,32 @@ export default function Header({
         {/* Right Action Buttons */}
         <div className="flex items-center gap-2">
           
-          {/* User / Login Pill */}
+          {/* User / Login Status Pill */}
           {authSession?.authenticated ? (
             <button
               onClick={() => setActiveTab('guardian')}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-medium text-slate-200"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="font-mono text-emerald-300 font-bold truncate max-w-[120px]">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-mono text-emerald-300 font-bold truncate max-w-[90px] sm:max-w-[120px]">
                 {displayName || 'Connected'}
               </span>
             </button>
           ) : (
             <button
               onClick={onLogin}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-xs font-medium text-amber-300 transition-colors"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-xs font-medium text-amber-300 transition-colors"
             >
               <LogIn className="w-3.5 h-3.5" />
-              <span>Connect Bungie</span>
+              <span className="hidden sm:inline">Connect Bungie</span>
+              <span className="sm:hidden">Connect</span>
             </button>
           )}
 
           <button
             onClick={onOpenSettings}
-            className="p-2 rounded-lg bg-[#121722] hover:bg-slate-800 border border-[#20293a] text-slate-400 hover:text-slate-200 transition-colors"
-            title="Settings & Manifest Sync"
+            className="p-1.5 sm:p-2 rounded-lg bg-[#121722] hover:bg-slate-800 border border-[#20293a] text-slate-400 hover:text-slate-200 transition-colors"
+            title="Settings & API Credentials"
           >
             <Settings className="w-4 h-4" />
           </button>
