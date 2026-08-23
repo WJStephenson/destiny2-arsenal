@@ -12,23 +12,29 @@ import {
   Moon, 
   Snowflake, 
   Wind, 
-  CircleDot 
+  CircleDot,
+  Crown,
+  ChevronRight
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, generateDimQuery } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
+import LongPressable from './LongPressable';
 
 export default function WeaponCompare({ 
   compareList, 
   onRemoveFromCompare, 
   onClearCompare, 
-  onSelectWeapon 
+  onSelectWeapon,
+  onOpenInfo
 }) {
   if (!compareList || compareList.length === 0) {
     return (
-      <div className="p-16 text-center bg-[#121722] border border-[#20293a] rounded-2xl max-w-xl mx-auto space-y-4">
-        <Scale className="w-16 h-16 text-slate-600 mx-auto" />
-        <h2 className="text-xl font-bold text-slate-200 font-heading">Weapon Comparison Lab is Empty</h2>
-        <p className="text-sm text-slate-400">
-          Add 2 to 4 weapons by clicking the <span className="text-emerald-400 font-bold">Compare (⚖️)</span> icon on any weapon card in the weapon browser.
+      <div className="p-10 sm:p-16 text-center bg-[#121722] border border-[#20293a] rounded-2xl max-w-xl mx-auto space-y-4 shadow-xl">
+        <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center mx-auto text-amber-400">
+          <Scale className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-white font-heading">Comparison Lab is Empty</h2>
+        <p className="text-xs sm:text-sm text-slate-400 leading-relaxed max-w-md mx-auto">
+          Add 2 to 4 weapons by tapping the <span className="text-amber-400 font-bold">Compare (⚖️)</span> icon on any weapon card to inspect their stats and perks side-by-side.
         </p>
       </div>
     );
@@ -53,147 +59,155 @@ export default function WeaponCompare({
     'Draw Time'
   ];
 
-  // Find max value in compare list for each stat to highlight the highest
+  // Extract stat value helper
+  const getStat = (w, key) => {
+    if (w.stats?.[key] !== undefined) return w.stats[key];
+    if (w.statsList) {
+      const match = w.statsList.find(s => s.name?.toLowerCase() === key.toLowerCase());
+      if (match) return match.value;
+    }
+    return 0;
+  };
+
+  // Find max value in compare list for each stat to highlight the winner
   const maxStats = {};
   statKeys.forEach(key => {
     let max = -Infinity;
     compareList.forEach(w => {
-      const val = w.stats?.[key];
-      if (val !== undefined && val > max) max = val;
+      const val = getStat(w, key);
+      if (val > max) max = val;
     });
     maxStats[key] = max;
   });
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6 animate-fadeIn pb-6">
       
-      {/* Top Header */}
-      <div className="flex items-center justify-between bg-[#121722] border border-[#20293a] rounded-xl p-4">
-        <div className="flex items-center gap-2">
-          <Scale className="w-5 h-5 text-emerald-400" />
-          <h2 className="text-lg font-bold text-white font-heading">
-            Comparing {compareList.length} Weapon{compareList.length === 1 ? '' : 's'}
-          </h2>
+      {/* Top Header Bar */}
+      <div className="flex items-center justify-between bg-[#121722] border border-[#20293a] rounded-2xl p-3.5 sm:p-4 shadow-xl">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-bold">
+            <Scale className="w-4 h-4" />
+          </div>
+          <div>
+            <h2 className="text-sm sm:text-base font-bold text-white font-heading">
+              Comparing {compareList.length} Weapon{compareList.length === 1 ? '' : 's'}
+            </h2>
+            <span className="text-[10px] sm:text-xs text-slate-400 font-mono">
+              Green badges highlight winning stats
+            </span>
+          </div>
         </div>
 
         <button
           onClick={onClearCompare}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-lg text-xs font-mono transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-xl text-xs font-mono transition-colors"
         >
           <Trash2 className="w-3.5 h-3.5" />
           <span>Clear All</span>
         </button>
       </div>
 
-      {/* Comparison Grid */}
-      <div className={`grid grid-cols-1 md:grid-cols-${Math.min(4, compareList.length)} gap-4`}>
-        {compareList.map((w) => {
-          const tierInfo = getTierInfo(w.tierTypeName);
-          const damageInfo = getDamageInfo(w.damageType);
-
-          return (
-            <div 
-              key={w.id} 
-              className="bg-[#121722] border border-[#20293a] rounded-xl overflow-hidden flex flex-col space-y-4 p-4 shadow-xl"
-            >
-              {/* Header */}
-              <div className="flex items-start justify-between gap-2 border-b border-[#20293a] pb-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                    {w.icon && <img src={w.icon} alt="" className="w-full h-full object-cover" />}
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-bold uppercase ${tierInfo.bg} ${tierInfo.text}`}>
-                        {w.tierTypeName}
-                      </span>
-                      <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${damageInfo.bg} ${damageInfo.text}`}>
-                        {w.damageType}
-                      </span>
-                    </div>
-                    <h3 
-                      onClick={() => onSelectWeapon(w)}
-                      className="text-base font-bold text-white font-heading hover:text-amber-400 cursor-pointer mt-0.5"
-                    >
-                      {w.name}
-                    </h3>
-                    <p className="text-xs text-slate-400">{w.itemTypeDisplayName || w.weaponType}</p>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => onRemoveFromCompare(w.id)}
-                  className="p-1 rounded bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Intrinsic Frame */}
-              {w.intrinsic && (
-                <div className="p-2.5 rounded-lg bg-[#0b0e14] border border-[#20293a] text-xs">
-                  <span className="font-bold text-amber-300 font-heading block">{w.intrinsic.name}</span>
-                  <span className="text-[11px] text-slate-400 line-clamp-2">{w.intrinsic.description}</span>
-                </div>
-              )}
-
-              {/* Stats Comparison */}
-              <div className="space-y-2 bg-[#0b0e14] p-3 rounded-xl border border-[#20293a]">
-                <div className="text-[11px] font-bold text-slate-400 font-heading uppercase tracking-wider">
-                  Comparative Stats
-                </div>
-
-                {statKeys.filter(k => w.stats?.[k] !== undefined).map((key) => {
-                  const val = w.stats[key];
-                  const isWinner = compareList.length > 1 && val === maxStats[key] && maxStats[key] > 0;
-                  const pct = Math.min(100, Math.max(0, (val / 100) * 100));
-
+      {/* Side-by-Side Comparison Matrix */}
+      <div className="bg-[#121722] border border-[#20293a] rounded-2xl overflow-hidden shadow-2xl">
+        <div className="overflow-x-auto scrollbar-none">
+          <table className="w-full text-left border-collapse min-w-[540px]">
+            
+            {/* Table Header: Weapon Cards */}
+            <thead>
+              <tr className="border-b border-[#20293a] bg-[#0b0e14]">
+                <th className="p-3 text-xs font-heading font-bold text-slate-400 uppercase w-32 min-w-[120px]">
+                  Stats Matrix
+                </th>
+                {compareList.map(w => {
+                  const tier = getTierInfo(w.tierTypeName);
+                  const dmg = getDamageInfo(w.damageType);
                   return (
-                    <div key={key} className="space-y-0.5 text-xs font-mono">
-                      <div className="flex justify-between items-center">
-                        <span className="text-slate-400">{key}</span>
-                        <span className={`font-bold ${isWinner ? 'text-emerald-400' : 'text-slate-200'}`}>
-                          {val} {isWinner && '★'}
-                        </span>
-                      </div>
-                      <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                    <th key={w.id || w.hash} className="p-3 min-w-[170px] max-w-[220px]">
+                      <div className="relative p-2.5 rounded-xl bg-[#121722] border border-slate-800 space-y-2 group shadow-md">
+                        
+                        {/* Remove Button */}
+                        <button
+                          onClick={() => onRemoveFromCompare(w.id || w.hash)}
+                          className="absolute top-2 right-2 p-1 rounded-md bg-black/60 hover:bg-rose-500/30 text-slate-400 hover:text-rose-300 border border-white/10 transition-colors"
+                          title="Remove weapon"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+
                         <div 
-                          className={`h-full rounded-full transition-all duration-300 ${
-                            isWinner ? 'bg-emerald-400' : 'bg-slate-600'
-                          }`}
-                          style={{ width: `${pct}%` }}
-                        />
+                          onClick={() => onSelectWeapon(w)}
+                          className="flex items-start gap-2 cursor-pointer"
+                        >
+                          <div className="w-10 h-10 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
+                            {w.icon && <img src={w.icon} alt="" className="w-full h-full object-cover" />}
+                          </div>
+                          <div className="min-w-0 flex-1 pr-4">
+                            <span className={`text-[9px] font-mono font-bold uppercase block ${tier.text}`}>
+                              {w.tierTypeName}
+                            </span>
+                            <h4 className="text-xs font-bold text-white truncate group-hover:text-amber-300 font-heading">
+                              {w.name}
+                            </h4>
+                            <span className={`text-[10px] font-mono ${dmg.text} truncate block`}>
+                              {w.damageType} • {w.weaponType}
+                            </span>
+                          </div>
+                        </div>
+
                       </div>
-                    </div>
+                    </th>
                   );
                 })}
-              </div>
+              </tr>
+            </thead>
 
-              {/* Perk Columns Preview */}
-              <div className="space-y-2 pt-2 border-t border-[#20293a]">
-                <div className="text-[11px] font-bold text-slate-400 font-heading uppercase tracking-wider">
-                  Roll Columns
-                </div>
-                {w.socketColumns?.filter(c => ['Perk Column 3', 'Perk Column 4'].includes(c.type)).map((col, idx) => (
-                  <div key={idx} className="text-xs space-y-1">
-                    <span className="text-[10px] text-slate-500 font-mono">{col.type}:</span>
-                    <div className="flex flex-wrap gap-1">
-                      {col.perks.slice(0, 6).map(p => (
-                        <span key={p.hash} className="px-1.5 py-0.5 rounded bg-slate-800 text-[10px] text-slate-300 font-mono">
-                          {p.name}
-                        </span>
-                      ))}
-                      {col.perks.length > 6 && (
-                        <span className="text-[10px] text-slate-500 font-mono">+{col.perks.length - 6}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+            {/* Table Body: Stats Comparison */}
+            <tbody className="divide-y divide-[#20293a]/60 text-xs font-mono">
+              {statKeys.map(statKey => {
+                const maxVal = maxStats[statKey];
+                return (
+                  <tr key={statKey} className="hover:bg-slate-800/30 transition-colors">
+                    <td className="p-3 font-semibold text-slate-300 whitespace-nowrap bg-[#0d111a]">
+                      {statKey}
+                    </td>
+                    {compareList.map(w => {
+                      const val = getStat(w, statKey);
+                      const isWinner = val > 0 && val === maxVal && compareList.length > 1;
+                      const pct = Math.min(100, Math.max(0, (val / 100) * 100));
 
-            </div>
-          );
-        })}
+                      return (
+                        <td key={w.id || w.hash} className="p-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className={`font-bold ${isWinner ? 'text-emerald-400 font-extrabold' : 'text-slate-200'}`}>
+                                {val || '-'}
+                              </span>
+                              {isWinner && (
+                                <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold uppercase">
+                                  Top
+                                </span>
+                              )}
+                            </div>
+                            {val > 0 && !['Rounds Per Minute', 'RPM', 'Charge Time', 'Magazine', 'Draw Time'].includes(statKey) && (
+                              <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                                <div 
+                                  className={`h-full rounded-full transition-all ${isWinner ? 'bg-emerald-400' : 'bg-amber-400/80'}`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
+            </tbody>
+
+          </table>
+        </div>
       </div>
 
     </div>
