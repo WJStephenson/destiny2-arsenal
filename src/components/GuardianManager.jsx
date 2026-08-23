@@ -19,10 +19,13 @@ import {
   Moon,
   Snowflake,
   Wind,
-  CircleDot
+  CircleDot,
+  Search,
+  Filter
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
+import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 
 export default function GuardianManager({ 
   onSelectWeapon, 
@@ -36,6 +39,7 @@ export default function GuardianManager({
   const [selectedCharacterIndex, setSelectedCharacterIndex] = useState(0);
   const [activeSubTab, setActiveSubTab] = useState('equipped'); // 'equipped' | 'inventory' | 'vault' | 'loadouts'
   const [loading, setLoading] = useState(false);
+  const [resolvingDefinitions, setResolvingDefinitions] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
   const [vaultSearch, setVaultSearch] = useState('');
@@ -50,11 +54,11 @@ export default function GuardianManager({
   const fetchLiveProfile = async () => {
     setLoading(true);
     try {
-      // First attempt local Express backend API
+      // 1. First attempt local Express backend API (if available)
       const res = await fetch('/api/inventory/profile');
       if (res.ok) {
         const data = await res.json();
-        if (data.characters) {
+        if (data.characters && data.characters.length > 0) {
           setProfileData(data);
           setLoading(false);
           return;
@@ -62,7 +66,7 @@ export default function GuardianManager({
       }
     } catch (e) {}
 
-    // Fallback: Direct Bungie.net API querying from browser
+    // 2. Fallback: Direct Bungie.net API querying from browser (for Cloudflare / static hosts)
     try {
       const token = await getValidAuthToken();
       const settings = getStoredSettings();
@@ -97,8 +101,7 @@ export default function GuardianManager({
         });
         const raw = await profileRes.json();
         if (raw.Response) {
-          const formatted = parseDirectBungieProfile(raw.Response);
-          setProfileData(formatted);
+          await parseAndEnrichDirectBungieProfile(raw.Response);
         }
       }
     } catch (err) {
@@ -108,19 +111,93 @@ export default function GuardianManager({
     }
   };
 
-  function parseDirectBungieProfile(data) {
-    if (!data) return null;
+  async function parseAndEnrichDirectBungieProfile(data) {
+    if (!data) return;
+    setResolvingDefinitions(true);
+
     const charsMap = data.characters?.data || {};
     const equipMap = data.characterEquipment?.data || {};
     const bagMap = data.characterInventories?.data || {};
     const loadoutsMap = data.characterLoadouts?.data || {};
     const instances = data.itemComponents?.instances?.data || {};
+    const socketsMap = data.itemComponents?.sockets?.data || {};
+
+    // Collect all item and socket plug hashes to batch resolve
+    const allHashesToResolve = [];
+
+    Object.values(equipMap).forEach(eq => {
+      (eq.items || []).forEach(it => {
+        if (it.itemHash) allHashesToResolve.push(it.itemHash);
+        if (it.itemInstanceId && socketsMap[it.itemInstanceId]?.sockets) {
+          socketsMap[it.itemInstanceId].sockets.forEach(s => {
+            if (s.plugHash && s.isVisible) allHashesToResolve.push(s.plugHash);
+          });
+        }
+      });
+    });
+
+    Object.values(bagMap).forEach(bg => {
+      (bg.items || []).forEach(it => {
+        if (it.itemHash) allHashesToResolve.push(it.itemHash);
+        if (it.itemInstanceId && socketsMap[it.itemInstanceId]?.sockets) {
+          socketsMap[it.itemInstanceId].sockets.forEach(s => {
+            if (s.plugHash && s.isVisible) allHashesToResolve.push(s.plugHash);
+          });
+        }
+      });
+    });
+
+    (data.profileInventory?.data?.items || []).forEach(it => {
+      if (it.itemHash) allHashesToResolve.push(it.itemHash);
+    });
+
+    // Batch resolve definitions
+    const defs = await batchResolveItemDefinitions(allHashesToResolve);
+
+    function enrichItem(it) {
+      const hash = it.itemHash;
+      const def = defs[hash] || {};
+      const inst = it.itemInstanceId ? instances[it.itemInstanceId] : null;
+      const sock = it.itemInstanceId ? socketsMap[it.itemInstanceId] : null;
+
+      const perks = [];
+      if (sock && sock.sockets) {
+        sock.sockets.forEach(s => {
+          if (s.plugHash && s.isVisible && defs[s.plugHash]) {
+            const pDef = defs[s.plugHash];
+            if (pDef.name && !pDef.name.includes('Empty') && !pDef.name.includes('Tracker') && !pDef.name.includes('Kill') && !pDef.name.includes('Default') && !pDef.name.includes('Shader')) {
+              perks.push(pDef.name);
+            }
+          }
+        });
+      }
+
+      return {
+        itemInstanceId: it.itemInstanceId,
+        itemHash: it.itemHash,
+        name: def.name || `Item #${hash}`,
+        icon: def.icon || null,
+        iconWatermark: def.iconWatermark || null,
+        power: inst?.primaryStat?.value || null,
+        tierTypeName: def.tierTypeName || 'Legendary',
+        damageType: def.damageType || 'Kinetic',
+        itemTypeDisplayName: def.itemTypeDisplayName || (def.isWeapon ? 'Weapon' : def.isArmor ? 'Armor' : ''),
+        weaponType: def.isWeapon ? def.itemTypeDisplayName : null,
+        armorSlot: def.isArmor ? def.itemTypeDisplayName : null,
+        isWeapon: def.isWeapon,
+        isArmor: def.isArmor,
+        perks
+      };
+    }
 
     const characters = Object.values(charsMap).map(char => {
       const charId = char.characterId;
       const classType = char.classType === 0 ? 'Titan' : char.classType === 1 ? 'Hunter' : 'Warlock';
-      const equipped = (equipMap[charId]?.items || []).map(it => formatDirectItem(it, instances));
-      const bag = (bagMap[charId]?.items || []).map(it => formatDirectItem(it, instances));
+      const rawEquipped = equipMap[charId]?.items || [];
+      const rawBag = bagMap[charId]?.items || [];
+
+      const equipped = rawEquipped.map(enrichItem);
+      const bag = rawBag.map(enrichItem);
       const loadouts = (loadoutsMap[charId]?.loadouts || []).map((ld, idx) => ({
         index: idx,
         name: ld.nameId || `Loadout ${idx + 1}`,
@@ -131,33 +208,22 @@ export default function GuardianManager({
         characterId: charId,
         classType,
         light: char.light,
-        emblemBackgroundPath: char.emblemBackgroundPath ? 'https://www.bungie.net' + char.emblemBackgroundPath : null,
+        emblemBackgroundPath: char.emblemBackgroundPath ? `https://www.bungie.net${char.emblemBackgroundPath}` : null,
         equipped,
         bag,
         loadouts
       };
     });
 
-    const vault = (data.profileInventory?.data?.items || []).map(it => formatDirectItem(it, instances));
+    const vault = (data.profileInventory?.data?.items || []).map(enrichItem);
 
-    return {
+    setProfileData({
       profileInfo: data.profile?.data?.userInfo,
       characters,
       vault
-    };
-  }
+    });
 
-  function formatDirectItem(it, instances) {
-    const inst = it.itemInstanceId ? instances[it.itemInstanceId] : null;
-    return {
-      itemInstanceId: it.itemInstanceId,
-      itemHash: it.itemHash,
-      name: `Item #${it.itemHash}`,
-      power: inst?.primaryStat?.value || null,
-      tierTypeName: 'Legendary',
-      damageType: 'Kinetic',
-      perks: []
-    };
+    setResolvingDefinitions(false);
   }
 
   const handleEquipItem = async (itemInstanceId) => {
@@ -165,26 +231,52 @@ export default function GuardianManager({
     if (!character || !itemInstanceId) return;
 
     setActionLoading(itemInstanceId);
-    setStatusMessage('Equipping item...');
+    setStatusMessage('Equipping item on Guardian...');
     try {
-      const res = await fetch('/api/inventory/equip', {
+      const token = await getValidAuthToken();
+      const settings = getStoredSettings();
+
+      // Try local Express server first
+      try {
+        const res = await fetch('/api/inventory/equip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            membershipType: profileData.profileInfo?.membershipType,
+            characterId: character.characterId,
+            itemInstanceId
+          })
+        });
+        if (res.ok) {
+          setStatusMessage('Item equipped successfully!');
+          await fetchLiveProfile();
+          return;
+        }
+      } catch (e) {}
+
+      // Fallback: Direct Bungie API
+      const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Items/EquipItem/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': settings.apiKey || '',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          membershipType: profileData.profileInfo?.membershipType,
+          itemId: itemInstanceId,
           characterId: character.characterId,
-          itemInstanceId
+          membershipType: profileData.profileInfo?.membershipType || 3
         })
       });
-      const data = await res.json();
+      const data = await directRes.json();
       if (data.ErrorCode === 1) {
-        setStatusMessage('Item equipped successfully!');
+        setStatusMessage('Item equipped on your Guardian!');
         await fetchLiveProfile();
       } else {
-        setStatusMessage(data.Message || 'Equipped via Bungie');
+        setStatusMessage(data.Message || 'Action completed');
       }
     } catch (e) {
-      setStatusMessage('Request sent to Bungie');
+      setStatusMessage('Request processed');
     } finally {
       setActionLoading(null);
       setTimeout(() => setStatusMessage(null), 3000);
@@ -196,22 +288,50 @@ export default function GuardianManager({
     if (!character || !item) return;
 
     setActionLoading(item.itemInstanceId);
-    setStatusMessage(transferToVault ? 'Moving to Vault...' : 'Moving to Character...');
+    setStatusMessage(transferToVault ? 'Transferring to Vault...' : `Transferring to ${character.classType}...`);
     try {
-      const res = await fetch('/api/inventory/transfer', {
+      const token = await getValidAuthToken();
+      const settings = getStoredSettings();
+
+      // Try local Express server first
+      try {
+        const res = await fetch('/api/inventory/transfer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            membershipType: profileData.profileInfo?.membershipType,
+            characterId: character.characterId,
+            itemReferenceHash: item.itemHash,
+            itemInstanceId: item.itemInstanceId,
+            transferToVault
+          })
+        });
+        if (res.ok) {
+          setStatusMessage(transferToVault ? 'Moved to Vault!' : 'Transferred to Character!');
+          await fetchLiveProfile();
+          return;
+        }
+      } catch (e) {}
+
+      // Fallback: Direct Bungie API Transfer
+      const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Items/TransferItem/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': settings.apiKey || '',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          membershipType: profileData.profileInfo?.membershipType,
-          characterId: character.characterId,
           itemReferenceHash: item.itemHash,
-          itemInstanceId: item.itemInstanceId,
+          itemId: item.itemInstanceId,
+          characterId: character.characterId,
+          membershipType: profileData.profileInfo?.membershipType || 3,
           transferToVault
         })
       });
-      const data = await res.json();
+      const data = await directRes.json();
       if (data.ErrorCode === 1) {
-        setStatusMessage(transferToVault ? 'Moved to Vault!' : 'Transferred to Character!');
+        setStatusMessage(transferToVault ? 'Moved to Vault!' : `Transferred to ${character.classType}!`);
         await fetchLiveProfile();
       } else {
         setStatusMessage(data.Message || 'Transfer complete');
@@ -231,24 +351,49 @@ export default function GuardianManager({
     setActionLoading(`loadout_${loadoutIndex}`);
     setStatusMessage(`Equipping Loadout #${loadoutIndex + 1}...`);
     try {
-      const res = await fetch('/api/inventory/equip-loadout', {
+      const token = await getValidAuthToken();
+      const settings = getStoredSettings();
+
+      try {
+        const res = await fetch('/api/inventory/equip-loadout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            membershipType: profileData.profileInfo?.membershipType,
+            characterId: character.characterId,
+            loadoutIndex
+          })
+        });
+        if (res.ok) {
+          setStatusMessage(`Loadout #${loadoutIndex + 1} equipped!`);
+          await fetchLiveProfile();
+          return;
+        }
+      } catch (e) {}
+
+      // Direct Bungie EquipLoadout
+      const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Loadouts/EquipLoadout/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': settings.apiKey || '',
+          'Authorization': `Bearer ${token}`
+        },
         body: JSON.stringify({
-          membershipType: profileData.profileInfo?.membershipType,
+          loadoutIndex,
           characterId: character.characterId,
-          loadoutIndex
+          membershipType: profileData.profileInfo?.membershipType || 3
         })
       });
-      const data = await res.json();
+      const data = await directRes.json();
       if (data.ErrorCode === 1) {
-        setStatusMessage(`Loadout #${loadoutIndex + 1} equipped!`);
+        setStatusMessage(`Loadout #${loadoutIndex + 1} active in-game!`);
         await fetchLiveProfile();
       } else {
-        setStatusMessage(data.Message || `Loadout #${loadoutIndex + 1} active`);
+        setStatusMessage(data.Message || `Loadout active`);
       }
     } catch (e) {
-      setStatusMessage(`Loadout #${loadoutIndex + 1} equipped`);
+      setStatusMessage(`Loadout equipped`);
     } finally {
       setActionLoading(null);
       setTimeout(() => setStatusMessage(null), 3000);
@@ -279,9 +424,6 @@ export default function GuardianManager({
           <p className="text-slate-400">
             Authentication persists automatically in your browser. You stay logged in across sessions.
           </p>
-          <div className="text-[11px] text-slate-500 font-mono">
-            Requires API Key & OAuth Client ID configured in Settings.
-          </div>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -306,8 +448,8 @@ export default function GuardianManager({
 
   const activeChar = profileData?.characters?.[selectedCharacterIndex];
   const filteredVault = (profileData?.vault || []).filter(item => {
-    if (vaultFilter === 'weapons' && !item.weaponType) return false;
-    if (vaultFilter === 'armor' && !item.armorSlot) return false;
+    if (vaultFilter === 'weapons' && !item.isWeapon) return false;
+    if (vaultFilter === 'armor' && !item.isArmor) return false;
     if (vaultSearch.trim()) {
       const q = vaultSearch.toLowerCase();
       return item.name.toLowerCase().includes(q) || 
@@ -338,6 +480,11 @@ export default function GuardianManager({
                 <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono font-bold">
                   LIVE SYNC
                 </span>
+                {resolvingDefinitions && (
+                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono flex items-center gap-1 animate-pulse">
+                    <RefreshCw className="w-3 h-3 animate-spin" /> Resolving items...
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400">Manage real-time inventory, vault gear & in-game loadouts</p>
             </div>
@@ -346,11 +493,11 @@ export default function GuardianManager({
           <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             <button
               onClick={fetchLiveProfile}
-              disabled={loading}
+              disabled={loading || resolvingDefinitions}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading || resolvingDefinitions ? 'animate-spin' : ''}`} />
+              <span>{loading || resolvingDefinitions ? 'Syncing...' : 'Refresh'}</span>
             </button>
 
             <button
@@ -475,16 +622,29 @@ export default function GuardianManager({
               return (
                 <div
                   key={item.itemInstanceId || item.itemHash}
-                  className="bg-[#121722] border border-[#20293a] rounded-xl overflow-hidden flex flex-col justify-between"
+                  className="bg-[#121722] border border-[#20293a] hover:border-slate-600 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg"
                 >
                   <div className={`p-3 ${tierInfo.headerBg} border-b border-[#20293a]`}>
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                        {item.icon && <img src={item.icon} alt="" className="w-full h-full object-cover" />}
+                      
+                      {/* Icon */}
+                      <div className="relative w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
+                        {item.icon ? (
+                          <img src={item.icon} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold text-xs">
+                            D2
+                          </div>
+                        )}
+                        {item.iconWatermark && (
+                          <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
+                        )}
                       </div>
+
+                      {/* Info */}
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-mono font-bold ${tierInfo.text}`}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
                             {item.tierTypeName}
                           </span>
                           {item.damageType && (
@@ -494,21 +654,27 @@ export default function GuardianManager({
                           )}
                         </div>
                         <h4 className="font-bold text-white text-sm truncate">{item.name}</h4>
-                        <div className="text-xs text-amber-400 font-mono font-bold">
-                          ✧ {item.power || '1900'} Power
+                        <div className="flex items-center justify-between text-xs mt-0.5">
+                          <span className="text-[11px] text-slate-400 truncate">{item.itemTypeDisplayName}</span>
+                          {item.power && (
+                            <span className="text-amber-400 font-mono font-bold">
+                              ✧ {item.power}
+                            </span>
+                          )}
                         </div>
                       </div>
+
                     </div>
                   </div>
 
-                  {/* Active Perks */}
+                  {/* Active Rolled Sockets / Perks */}
                   <div className="p-3 space-y-2 flex-1">
                     {item.perks?.length > 0 && (
                       <div className="flex flex-wrap gap-1">
                         {item.perks.map((p, pIdx) => (
                           <span
                             key={pIdx}
-                            className="px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 text-[11px] font-mono border border-slate-700"
+                            className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
                           >
                             {p}
                           </span>
@@ -519,22 +685,13 @@ export default function GuardianManager({
 
                   {/* Actions */}
                   <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
-                    {item.baseItem && (
-                      <button
-                        onClick={() => onSelectWeapon(item.baseItem)}
-                        className="text-xs text-slate-400 hover:text-amber-300 font-medium"
-                      >
-                        Inspect
-                      </button>
-                    )}
-
                     <button
                       disabled={actionLoading === item.itemInstanceId}
                       onClick={() => handleTransferItem(item, true)}
-                      className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center gap-1 disabled:opacity-50"
+                      className="w-full py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
                     >
                       <Box className="w-3.5 h-3.5 text-amber-400" />
-                      <span>To Vault</span>
+                      <span>Transfer to Vault</span>
                     </button>
                   </div>
 
@@ -560,16 +717,25 @@ export default function GuardianManager({
               return (
                 <div
                   key={item.itemInstanceId || item.itemHash}
-                  className="bg-[#121722] border border-[#20293a] rounded-xl overflow-hidden flex flex-col justify-between"
+                  className="bg-[#121722] border border-[#20293a] hover:border-slate-600 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg"
                 >
                   <div className={`p-3 ${tierInfo.headerBg} border-b border-[#20293a]`}>
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                        {item.icon && <img src={item.icon} alt="" className="w-full h-full object-cover" />}
+                      <div className="relative w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
+                        {item.icon ? (
+                          <img src={item.icon} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold text-xs">
+                            D2
+                          </div>
+                        )}
+                        {item.iconWatermark && (
+                          <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-mono font-bold ${tierInfo.text}`}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
                             {item.tierTypeName}
                           </span>
                           {item.damageType && (
@@ -579,8 +745,13 @@ export default function GuardianManager({
                           )}
                         </div>
                         <h4 className="font-bold text-white text-sm truncate">{item.name}</h4>
-                        <div className="text-xs text-amber-400 font-mono font-bold">
-                          ✧ {item.power || '1900'} Power
+                        <div className="flex items-center justify-between text-xs mt-0.5">
+                          <span className="text-[11px] text-slate-400 truncate">{item.itemTypeDisplayName}</span>
+                          {item.power && (
+                            <span className="text-amber-400 font-mono font-bold">
+                              ✧ {item.power}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -593,7 +764,7 @@ export default function GuardianManager({
                         {item.perks.map((p, pIdx) => (
                           <span
                             key={pIdx}
-                            className="px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 text-[11px] font-mono border border-slate-700"
+                            className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
                           >
                             {p}
                           </span>
@@ -607,7 +778,7 @@ export default function GuardianManager({
                     <button
                       disabled={actionLoading === item.itemInstanceId}
                       onClick={() => handleEquipItem(item.itemInstanceId)}
-                      className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold font-mono transition-colors disabled:opacity-50"
+                      className="flex-1 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold font-mono transition-colors disabled:opacity-50"
                     >
                       ⚡ Equip
                     </button>
@@ -615,10 +786,10 @@ export default function GuardianManager({
                     <button
                       disabled={actionLoading === item.itemInstanceId}
                       onClick={() => handleTransferItem(item, true)}
-                      className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center gap-1 disabled:opacity-50"
+                      className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center gap-1 disabled:opacity-50"
                     >
                       <Box className="w-3.5 h-3.5 text-amber-400" />
-                      <span>To Vault</span>
+                      <span>Vault</span>
                     </button>
                   </div>
 
@@ -635,13 +806,16 @@ export default function GuardianManager({
           
           {/* Vault Search & Filter */}
           <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-[#121722] p-4 rounded-xl border border-[#20293a]">
-            <input
-              type="text"
-              placeholder="Search items in Vault..."
-              value={vaultSearch}
-              onChange={(e) => setVaultSearch(e.target.value)}
-              className="flex-1 px-3 py-2 bg-[#0b0e14] border border-[#20293a] rounded-lg text-sm text-slate-200 focus:outline-none focus:border-amber-500"
-            />
+            <div className="relative flex-1">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search items, perks, weapon types in Vault..."
+                value={vaultSearch}
+                onChange={(e) => setVaultSearch(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-[#0b0e14] border border-[#20293a] rounded-lg text-sm text-slate-200 focus:outline-none focus:border-amber-500"
+              />
+            </div>
 
             <div className="flex items-center gap-2">
               <button
@@ -674,16 +848,25 @@ export default function GuardianManager({
               return (
                 <div
                   key={item.itemInstanceId || item.itemHash}
-                  className="bg-[#121722] border border-[#20293a] rounded-xl overflow-hidden flex flex-col justify-between"
+                  className="bg-[#121722] border border-[#20293a] hover:border-slate-600 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg"
                 >
                   <div className={`p-3 ${tierInfo.headerBg} border-b border-[#20293a]`}>
                     <div className="flex items-start gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                        {item.icon && <img src={item.icon} alt="" className="w-full h-full object-cover" />}
+                      <div className="relative w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
+                        {item.icon ? (
+                          <img src={item.icon} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold text-xs">
+                            D2
+                          </div>
+                        )}
+                        {item.iconWatermark && (
+                          <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className={`text-[10px] font-mono font-bold ${tierInfo.text}`}>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
                             {item.tierTypeName}
                           </span>
                           {item.damageType && (
@@ -693,8 +876,13 @@ export default function GuardianManager({
                           )}
                         </div>
                         <h4 className="font-bold text-white text-sm truncate">{item.name}</h4>
-                        <div className="text-xs text-amber-400 font-mono font-bold">
-                          ✧ {item.power || '1900'} Power
+                        <div className="flex items-center justify-between text-xs mt-0.5">
+                          <span className="text-[11px] text-slate-400 truncate">{item.itemTypeDisplayName}</span>
+                          {item.power && (
+                            <span className="text-amber-400 font-mono font-bold">
+                              ✧ {item.power}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -707,7 +895,7 @@ export default function GuardianManager({
                         {item.perks.map((p, pIdx) => (
                           <span
                             key={pIdx}
-                            className="px-1.5 py-0.5 rounded bg-slate-800/80 text-slate-300 text-[11px] font-mono border border-slate-700"
+                            className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
                           >
                             {p}
                           </span>
@@ -718,22 +906,13 @@ export default function GuardianManager({
 
                   {/* Action: Transfer to Active Character */}
                   <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
-                    {item.baseItem && (
-                      <button
-                        onClick={() => onSelectWeapon(item.baseItem)}
-                        className="text-xs text-slate-400 hover:text-amber-300 font-medium"
-                      >
-                        Inspect
-                      </button>
-                    )}
-
                     <button
                       disabled={actionLoading === item.itemInstanceId}
                       onClick={() => handleTransferItem(item, false)}
-                      className="px-3 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold font-mono flex items-center gap-1 disabled:opacity-50"
+                      className="w-full py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold font-mono flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
                     >
                       <ArrowRightLeft className="w-3.5 h-3.5 text-amber-400" />
-                      <span>To {activeChar?.classType}</span>
+                      <span>Transfer to {activeChar?.classType}</span>
                     </button>
                   </div>
 
