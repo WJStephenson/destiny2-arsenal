@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Shield, 
-  Sword, 
+  Crosshair, 
   ArrowRightLeft, 
   Zap, 
   RefreshCw, 
@@ -13,7 +13,7 @@ import {
   ChevronRight, 
   Box, 
   Layers, 
-  AlertCircle,
+  Backpack, 
   ExternalLink,
   Flame,
   Moon,
@@ -23,7 +23,7 @@ import {
   Search,
   Filter
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { getClientItemByHash, initClientManifest } from '../utils/client-manifest';
@@ -38,9 +38,8 @@ export default function GuardianManager({
 }) {
   const [profileData, setProfileData] = useState(null);
   const [selectedCharacterIndex, setSelectedCharacterIndex] = useState(0);
-  const [activeSubTab, setActiveSubTab] = useState('equipped'); // 'equipped' | 'inventory' | 'vault' | 'loadouts'
+  const [activeSubTab, setActiveSubTab] = useState('weapons'); // 'weapons' | 'armor' | 'inventory' | 'loadouts' | 'vault'
   const [loading, setLoading] = useState(false);
-  const [resolvingDefinitions, setResolvingDefinitions] = useState(false);
   const [actionLoading, setActionLoading] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
   const [vaultSearch, setVaultSearch] = useState('');
@@ -67,7 +66,7 @@ export default function GuardianManager({
       }
     } catch (e) {}
 
-    // 2. Fallback: Direct Bungie.net API querying from browser (for Cloudflare / static hosts)
+    // 2. Direct Bungie.net API querying from browser
     try {
       const token = await getValidAuthToken();
       const settings = getStoredSettings();
@@ -114,7 +113,6 @@ export default function GuardianManager({
 
   async function parseAndEnrichDirectBungieProfile(data) {
     if (!data) return;
-    setResolvingDefinitions(true);
 
     const charsMap = data.characters?.data || {};
     const equipMap = data.characterEquipment?.data || {};
@@ -123,7 +121,6 @@ export default function GuardianManager({
     const instances = data.itemComponents?.instances?.data || {};
     const socketsMap = data.itemComponents?.sockets?.data || {};
 
-    // Collect all item and socket plug hashes to batch resolve
     const allHashesToResolve = [];
 
     Object.values(equipMap).forEach(eq => {
@@ -152,7 +149,6 @@ export default function GuardianManager({
       if (it.itemHash) allHashesToResolve.push(it.itemHash);
     });
 
-    // Batch resolve definitions
     const defs = await batchResolveItemDefinitions(allHashesToResolve);
 
     function enrichItem(it) {
@@ -201,11 +197,30 @@ export default function GuardianManager({
 
       const equipped = rawEquipped.map(enrichItem);
       const bag = rawBag.map(enrichItem);
-      const loadouts = (loadoutsMap[charId]?.loadouts || []).map((ld, idx) => ({
-        index: idx,
-        name: ld.nameId || `Loadout ${idx + 1}`,
-        items: ld.items || []
-      }));
+
+      // Map instances for loadouts preview
+      const instanceMap = new Map();
+      equipped.forEach(it => { if (it.itemInstanceId) instanceMap.set(it.itemInstanceId, it); });
+      bag.forEach(it => { if (it.itemInstanceId) instanceMap.set(it.itemInstanceId, it); });
+
+      const loadouts = (loadoutsMap[charId]?.loadouts || []).map((ld, idx) => {
+        const loadoutItems = (ld.items || [])
+          .filter(it => it.itemInstanceId && it.itemInstanceId !== '0')
+          .map(it => {
+            return instanceMap.get(it.itemInstanceId) || {
+              itemInstanceId: it.itemInstanceId,
+              name: 'Item',
+              icon: null,
+              tierTypeName: 'Legendary'
+            };
+          });
+
+        return {
+          index: idx,
+          name: ld.nameId || `Loadout ${idx + 1}`,
+          items: loadoutItems
+        };
+      }).filter(ld => ld.items.length > 0);
 
       return {
         characterId: charId,
@@ -225,8 +240,6 @@ export default function GuardianManager({
       characters,
       vault
     });
-
-    setResolvingDefinitions(false);
   }
 
   const handleEquipItem = async (itemInstanceId) => {
@@ -239,7 +252,6 @@ export default function GuardianManager({
       const token = await getValidAuthToken();
       const settings = getStoredSettings();
 
-      // Try local Express server first
       try {
         const res = await fetch('/api/inventory/equip', {
           method: 'POST',
@@ -257,7 +269,6 @@ export default function GuardianManager({
         }
       } catch (e) {}
 
-      // Fallback: Direct Bungie API
       const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Items/EquipItem/', {
         method: 'POST',
         headers: {
@@ -296,7 +307,6 @@ export default function GuardianManager({
       const token = await getValidAuthToken();
       const settings = getStoredSettings();
 
-      // Try local Express server first
       try {
         const res = await fetch('/api/inventory/transfer', {
           method: 'POST',
@@ -316,7 +326,6 @@ export default function GuardianManager({
         }
       } catch (e) {}
 
-      // Fallback: Direct Bungie API Transfer
       const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Items/TransferItem/', {
         method: 'POST',
         headers: {
@@ -374,7 +383,6 @@ export default function GuardianManager({
         }
       } catch (e) {}
 
-      // Direct Bungie EquipLoadout
       const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Loadouts/EquipLoadout/', {
         method: 'POST',
         headers: {
@@ -403,10 +411,9 @@ export default function GuardianManager({
     }
   };
 
-  // Not authenticated view
   if (!authSession?.authenticated) {
     return (
-      <div className="max-w-2xl mx-auto my-6 sm:my-8 bg-[#121722] border border-[#28354d] rounded-2xl p-6 sm:p-8 text-center space-y-6 shadow-2xl">
+      <div className="max-w-2xl mx-auto my-6 sm:my-8 bg-[#121722] border border-[#20293a] rounded-2xl p-6 sm:p-8 text-center space-y-6 shadow-2xl">
         <div className="w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center mx-auto shadow-lg shadow-amber-500/10">
           <Shield className="w-8 h-8 text-amber-400" />
         </div>
@@ -417,15 +424,6 @@ export default function GuardianManager({
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
             Link your Bungie.net account to inspect your Guardians' live gear, browse your Vault, transfer weapons in real-time, and switch in-game loadouts with 1 tap.
-          </p>
-        </div>
-
-        <div className="p-4 rounded-xl bg-[#0b0e14] border border-[#20293a] text-left text-xs space-y-3">
-          <div className="flex items-center gap-2 text-amber-300 font-bold font-heading">
-            <Lock className="w-4 h-4" /> Persistent Bungie OAuth 2.0
-          </div>
-          <p className="text-slate-400">
-            Authentication persists automatically in your browser. You stay logged in across sessions.
           </p>
         </div>
 
@@ -450,6 +448,12 @@ export default function GuardianManager({
   }
 
   const activeChar = profileData?.characters?.[selectedCharacterIndex];
+
+  const equippedWeapons = activeChar?.equipped?.filter(it => it.isWeapon || it.weaponType != null) || [];
+  const equippedArmor = activeChar?.equipped?.filter(it => it.isArmor || it.armorSlot != null || (!it.isWeapon && it.weaponType == null)) || [];
+  const inventoryItems = activeChar?.bag || [];
+  const loadoutsList = activeChar?.loadouts || [];
+
   const filteredVault = (profileData?.vault || []).filter(item => {
     if (vaultFilter === 'weapons' && !item.isWeapon) return false;
     if (vaultFilter === 'armor' && !item.isArmor) return false;
@@ -466,41 +470,23 @@ export default function GuardianManager({
   return (
     <div className="space-y-6">
       
-      {/* Top Header & Character Selector Bar */}
+      {/* Top Character Selector & Refresh */}
       <div className="bg-[#121722] border border-[#20293a] rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
         
-        {/* Profile Info & Refresh */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-[#20293a] pb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-amber-400" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-bold text-white font-heading">
-                  {profileData?.profileInfo?.displayName || authSession?.session?.user?.bungieNetUser?.displayName || 'Guardian Profile'}
-                </h2>
-                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-mono font-bold">
-                  LIVE SYNC
-                </span>
-                {resolvingDefinitions && (
-                  <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono flex items-center gap-1 animate-pulse">
-                    <RefreshCw className="w-3 h-3 animate-spin" /> Resolving items...
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-400">Manage real-time inventory, vault gear & in-game loadouts</p>
-            </div>
+        {/* Header Row */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-base sm:text-lg font-bold text-white font-heading">
+            {activeChar?.classType ? `${activeChar.classType} • ✧ ${activeChar.light} Power` : 'Guardian'}
           </div>
 
-          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <div className="flex items-center gap-2">
             <button
               onClick={fetchLiveProfile}
-              disabled={loading || resolvingDefinitions}
+              disabled={loading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${loading || resolvingDefinitions ? 'animate-spin' : ''}`} />
-              <span>{loading || resolvingDefinitions ? 'Syncing...' : 'Refresh'}</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
             </button>
 
             <button
@@ -513,7 +499,7 @@ export default function GuardianManager({
           </div>
         </div>
 
-        {/* Character Emblem Banners Selector */}
+        {/* Character Emblem Banners */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {profileData?.characters?.map((char, idx) => {
             const isSelected = selectedCharacterIndex === idx;
@@ -526,16 +512,16 @@ export default function GuardianManager({
                   backgroundSize: 'cover',
                   backgroundPosition: 'center'
                 }}
-                className={`relative h-20 rounded-xl overflow-hidden cursor-pointer p-3 flex items-center justify-between border-2 transition-all shadow-lg ${
+                className={`relative h-18 rounded-xl overflow-hidden cursor-pointer p-3 flex items-center justify-between border-2 transition-all shadow-lg ${
                   isSelected 
-                    ? 'border-amber-400 ring-2 ring-amber-400/30 scale-[1.02]' 
+                    ? 'border-amber-400 ring-2 ring-amber-400/30 scale-[1.01]' 
                     : 'border-slate-800 opacity-75 hover:opacity-100 hover:border-slate-600'
                 }`}
               >
                 <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent pointer-events-none" />
                 
                 <div className="relative z-10 space-y-0.5">
-                  <div className="text-lg font-bold text-white font-heading uppercase tracking-wide drop-shadow">
+                  <div className="text-base sm:text-lg font-bold text-white font-heading uppercase tracking-wide drop-shadow">
                     {char.classType}
                   </div>
                   <div className="text-xs text-amber-300 font-mono font-bold flex items-center gap-1 drop-shadow">
@@ -545,8 +531,8 @@ export default function GuardianManager({
                 </div>
 
                 {isSelected && (
-                  <div className="relative z-10 w-6 h-6 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg font-bold">
-                    <Check className="w-4 h-4" />
+                  <div className="relative z-10 w-5 h-5 rounded-full bg-amber-400 text-black flex items-center justify-center shadow-lg font-bold">
+                    <Check className="w-3.5 h-3.5" />
                   </div>
                 )}
               </div>
@@ -554,51 +540,69 @@ export default function GuardianManager({
           })}
         </div>
 
-        {/* Sub-Tab Navigation Bar */}
+        {/* Clear Sub-Tab Navigation Bar */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-[#20293a]">
+          
           <button
-            onClick={() => setActiveSubTab('equipped')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
-              activeSubTab === 'equipped' 
+            onClick={() => setActiveSubTab('weapons')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
+              activeSubTab === 'weapons' 
                 ? 'bg-amber-500 text-black shadow-md' 
                 : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
             }`}
           >
-            Equipped ({activeChar?.equipped?.length || 0})
+            <Crosshair className="w-3.5 h-3.5" />
+            <span>Weapons ({equippedWeapons.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab('armor')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
+              activeSubTab === 'armor' 
+                ? 'bg-amber-500 text-black shadow-md' 
+                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+            }`}
+          >
+            <Shield className="w-3.5 h-3.5" />
+            <span>Armour ({equippedArmor.length})</span>
           </button>
 
           <button
             onClick={() => setActiveSubTab('inventory')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
               activeSubTab === 'inventory' 
                 ? 'bg-amber-500 text-black shadow-md' 
                 : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
             }`}
           >
-            Bags ({activeChar?.bag?.length || 0})
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('vault')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
-              activeSubTab === 'vault' 
-                ? 'bg-amber-500 text-black shadow-md' 
-                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-            }`}
-          >
-            Vault ({profileData?.vault?.length || 0})
+            <Backpack className="w-3.5 h-3.5" />
+            <span>Inventory ({inventoryItems.length})</span>
           </button>
 
           <button
             onClick={() => setActiveSubTab('loadouts')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
               activeSubTab === 'loadouts' 
                 ? 'bg-amber-500 text-black shadow-md' 
                 : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
             }`}
           >
-            Loadouts ({activeChar?.loadouts?.length || 0})
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <span>Loadouts ({loadoutsList.length})</span>
           </button>
+
+          <button
+            onClick={() => setActiveSubTab('vault')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
+              activeSubTab === 'vault' 
+                ? 'bg-amber-500 text-black shadow-md' 
+                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+            }`}
+          >
+            <Box className="w-3.5 h-3.5" />
+            <span>Vault ({profileData?.vault?.length || 0})</span>
+          </button>
+
         </div>
 
       </div>
@@ -610,15 +614,15 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 1: EQUIPPED GEAR */}
-      {activeSubTab === 'equipped' && (
+      {/* Sub-Tab 1: EQUIPPED WEAPONS */}
+      {activeSubTab === 'weapons' && (
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-            Currently Equipped on {activeChar?.classType}
+            Equipped Weapons on {activeChar?.classType}
           </h3>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {activeChar?.equipped?.map((item) => {
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {equippedWeapons.map((item) => {
               const tierInfo = getTierInfo(item.tierTypeName);
               const damageInfo = getDamageInfo(item.damageType);
 
@@ -627,24 +631,18 @@ export default function GuardianManager({
                   key={item.itemInstanceId || item.itemHash}
                   className="bg-[#121722] border border-[#20293a] hover:border-slate-600 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg"
                 >
-                  <div className={`p-3 ${tierInfo.headerBg} border-b border-[#20293a]`}>
+                  <div className={`p-3.5 ${tierInfo.headerBg} border-b border-[#20293a]`}>
                     <div className="flex items-start gap-3">
                       
-                      {/* Icon */}
-                      <div className="relative w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
+                      <div className="relative w-14 h-14 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
                         {item.icon ? (
                           <img src={item.icon} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold text-xs">
-                            D2
-                          </div>
-                        )}
+                        ) : null}
                         {item.iconWatermark && (
                           <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
                         )}
                       </div>
 
-                      {/* Info */}
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
@@ -656,7 +654,7 @@ export default function GuardianManager({
                             </span>
                           )}
                         </div>
-                        <h4 className="font-bold text-white text-sm truncate">{item.name}</h4>
+                        <h4 className="font-bold text-white text-base truncate">{item.name}</h4>
                         <div className="flex items-center justify-between text-xs mt-0.5">
                           <span className="text-[11px] text-slate-400 truncate">{item.itemTypeDisplayName}</span>
                           {item.power && (
@@ -670,7 +668,7 @@ export default function GuardianManager({
                     </div>
                   </div>
 
-                  {/* Active Rolled Sockets / Perks */}
+                  {/* Active Perks */}
                   <div className="p-3 space-y-2 flex-1">
                     {item.perks?.length > 0 && (
                       <div className="flex flex-wrap gap-1">
@@ -705,15 +703,93 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 2: CHARACTER BAGS */}
+      {/* Sub-Tab 2: EQUIPPED ARMOR */}
+      {activeSubTab === 'armor' && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
+            Equipped Armour on {activeChar?.classType}
+          </h3>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {equippedArmor.map((item) => {
+              const tierInfo = getTierInfo(item.tierTypeName);
+
+              return (
+                <div
+                  key={item.itemInstanceId || item.itemHash}
+                  className="bg-[#121722] border border-[#20293a] hover:border-slate-600 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg"
+                >
+                  <div className={`p-3.5 ${tierInfo.headerBg} border-b border-[#20293a]`}>
+                    <div className="flex items-start gap-3">
+                      
+                      <div className="relative w-14 h-14 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
+                        {item.icon ? (
+                          <img src={item.icon} alt="" className="w-full h-full object-cover" />
+                        ) : null}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
+                          {item.tierTypeName}
+                        </span>
+                        <h4 className="font-bold text-white text-base truncate">{item.name}</h4>
+                        <div className="flex items-center justify-between text-xs mt-0.5">
+                          <span className="text-[11px] text-slate-400 truncate">{item.itemTypeDisplayName || 'Armour'}</span>
+                          {item.power && (
+                            <span className="text-amber-400 font-mono font-bold">
+                              ✧ {item.power}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  {/* Active Perks / Mods */}
+                  <div className="p-3 space-y-2 flex-1">
+                    {item.perks?.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {item.perks.map((p, pIdx) => (
+                          <span
+                            key={pIdx}
+                            className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
+                          >
+                            {p}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
+                    <button
+                      disabled={actionLoading === item.itemInstanceId}
+                      onClick={() => handleTransferItem(item, true)}
+                      className="w-full py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                    >
+                      <Box className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Transfer to Vault</span>
+                    </button>
+                  </div>
+
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Sub-Tab 3: INVENTORY BAGS */}
       {activeSubTab === 'inventory' && (
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-            Items in {activeChar?.classType}'s Bag ({activeChar?.bag?.length || 0})
+            {activeChar?.classType}'s Bag Inventory ({inventoryItems.length})
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {activeChar?.bag?.map((item) => {
+            {inventoryItems.map((item) => {
               const tierInfo = getTierInfo(item.tierTypeName);
               const damageInfo = getDamageInfo(item.damageType);
 
@@ -727,14 +803,7 @@ export default function GuardianManager({
                       <div className="relative w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
                         {item.icon ? (
                           <img src={item.icon} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold text-xs">
-                            D2
-                          </div>
-                        )}
-                        {item.iconWatermark && (
-                          <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
-                        )}
+                        ) : null}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -803,7 +872,74 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 3: VAULT EXPLORER */}
+      {/* Sub-Tab 4: IN-GAME LOADOUTS (With Visual Gear Items List!) */}
+      {activeSubTab === 'loadouts' && (
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
+            {activeChar?.classType}'s Saved Loadouts
+          </h3>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {loadoutsList.map((ld) => (
+              <div
+                key={ld.index}
+                className="bg-[#121722] border border-[#20293a] hover:border-amber-500/40 rounded-xl p-5 space-y-4 transition-all shadow-lg flex flex-col justify-between"
+              >
+                <div>
+                  <div className="flex items-center justify-between pb-3 border-b border-[#20293a]">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center font-bold text-amber-300 font-heading text-lg">
+                        #{ld.index + 1}
+                      </div>
+                      <div>
+                        <h4 className="font-bold text-white text-base font-heading">
+                          {ld.name || `Loadout ${ld.index + 1}`}
+                        </h4>
+                        <p className="text-xs text-slate-400">
+                          {ld.items.length} Equipped gear items
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Visual Items Grid inside the Loadout */}
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-3">
+                    {ld.items.map((it, idx) => (
+                      <div
+                        key={idx}
+                        className="relative group rounded-lg bg-black/50 border border-slate-800 p-1 flex flex-col items-center justify-center overflow-hidden"
+                        title={it.name}
+                      >
+                        <div className="w-10 h-10 rounded overflow-hidden bg-slate-900 flex items-center justify-center">
+                          {it.icon ? (
+                            <img src={it.icon} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <Shield className="w-5 h-5 text-slate-600" />
+                          )}
+                        </div>
+                        <span className="text-[9px] text-slate-300 font-mono truncate w-full text-center mt-1">
+                          {it.name}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <button
+                  disabled={actionLoading === `loadout_${ld.index}`}
+                  onClick={() => handleEquipLoadout(ld.index)}
+                  className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs font-mono flex items-center justify-center gap-2 transition-colors disabled:opacity-50 shadow-md"
+                >
+                  <Zap className="w-4 h-4" />
+                  <span>{actionLoading === `loadout_${ld.index}` ? 'Equipping...' : '⚡ Equip Full Loadout in Game'}</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Sub-Tab 5: VAULT STORAGE */}
       {activeSubTab === 'vault' && (
         <div className="space-y-4">
           
@@ -837,7 +973,7 @@ export default function GuardianManager({
                 onClick={() => setVaultFilter('armor')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium ${vaultFilter === 'armor' ? 'bg-amber-500 text-black font-bold' : 'bg-slate-800 text-slate-300'}`}
               >
-                Armor
+                Armour
               </button>
             </div>
           </div>
@@ -858,14 +994,7 @@ export default function GuardianManager({
                       <div className="relative w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
                         {item.icon ? (
                           <img src={item.icon} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-600 font-bold text-xs">
-                            D2
-                          </div>
-                        )}
-                        {item.iconWatermark && (
-                          <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
-                        )}
+                        ) : null}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -924,49 +1053,6 @@ export default function GuardianManager({
             })}
           </div>
 
-        </div>
-      )}
-
-      {/* Sub-Tab 4: IN-GAME LOADOUTS */}
-      {activeSubTab === 'loadouts' && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-            {activeChar?.classType}'s In-Game Loadouts
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {activeChar?.loadouts?.map((ld) => (
-              <div
-                key={ld.index}
-                className="bg-[#121722] border border-[#20293a] hover:border-amber-500/40 rounded-xl p-5 space-y-4 transition-all shadow-lg"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center font-bold text-amber-300 font-heading">
-                      #{ld.index + 1}
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-white text-base font-heading">
-                        {ld.name || `Loadout ${ld.index + 1}`}
-                      </h4>
-                      <p className="text-xs text-slate-400">
-                        {ld.items?.length || 0} Equipped items & mods
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  disabled={actionLoading === `loadout_${ld.index}`}
-                  onClick={() => handleEquipLoadout(ld.index)}
-                  className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs font-mono flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
-                >
-                  <Zap className="w-4 h-4" />
-                  <span>{actionLoading === `loadout_${ld.index}` ? 'Equipping...' : '⚡ Equip Full Loadout in Game'}</span>
-                </button>
-              </div>
-            ))}
-          </div>
         </div>
       )}
 

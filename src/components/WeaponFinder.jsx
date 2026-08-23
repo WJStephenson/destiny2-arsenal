@@ -667,12 +667,12 @@ export default function WeaponFinder({
       {/* --- RESULTS HEADER & SORTING --- */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-1">
         <div className="flex items-center gap-2">
-          <h2 className="text-lg font-bold text-white font-heading">
-            {loading ? 'Searching Arsenal...' : `Found ${totalCount.toLocaleString()} Weapons`}
+          <h2 className="text-base sm:text-lg font-bold text-white font-heading">
+            {totalCount.toLocaleString()} Weapons
           </h2>
           {selectedSources.length > 0 && (
             <span className="text-xs px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono">
-              Source: {selectedSources.join(', ')}
+              {selectedSources.join(', ')}
             </span>
           )}
         </div>
