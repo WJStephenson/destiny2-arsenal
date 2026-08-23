@@ -500,27 +500,39 @@ export default function WeaponFinder({
             </div>
           )}
 
-          {/* Quick Popular Meta Perks Pills (With Long Press info!) */}
+          {/* Quick Popular Meta Perks Pills (Tap to inspect & filter) */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             <span className="text-xs text-slate-500 whitespace-nowrap mr-1 font-mono flex items-center gap-1">
               <span>Popular:</span>
-              <span className="text-[10px] text-slate-600">(Hold for info)</span>
             </span>
             {popularPerks.map((p) => {
               const isSelected = selectedPerks.includes(p);
               return (
-                <LongPressable
+                <div
                   key={p}
-                  onClick={() => isSelected ? removePerk(p) : addPerk(p)}
-                  onLongPress={() => onOpenInfo?.({ name: p, type: 'perk' })}
-                  className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all border ${
                     isSelected
-                      ? 'bg-amber-500 text-black font-bold shadow-sm shadow-amber-500/30'
-                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white border border-slate-700/60'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm shadow-amber-500/20 font-bold'
+                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white border-slate-700/60'
                   }`}
                 >
-                  {p}
-                </LongPressable>
+                  <LongPressable
+                    onClick={() => onOpenInfo?.({ name: p, type: 'perk' })}
+                    onLongPress={() => onOpenInfo?.({ name: p, type: 'perk' })}
+                    className="cursor-pointer"
+                  >
+                    <span>{p}</span>
+                  </LongPressable>
+                  {isSelected && (
+                    <button
+                      onClick={() => removePerk(p)}
+                      className="hover:text-rose-400 p-0.5 rounded"
+                      title="Remove filter"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -531,8 +543,37 @@ export default function WeaponFinder({
       {/* --- FILTER PILLS & ACQUISITION SOURCES --- */}
       <div className="space-y-3 bg-[#121722]/60 border border-[#20293a]/60 rounded-xl p-4">
         
-        {/* Weapon Types */}
+        {/* Rarity / Tier (Exotic, Legendary, Rare) */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider font-heading whitespace-nowrap min-w-[70px]">
+            Rarity:
+          </span>
+          <div className="flex items-center gap-1.5">
+            {[
+              { name: 'Exotic', bg: 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-amber-500/10' },
+              { name: 'Legendary', bg: 'bg-purple-500/20 text-purple-300 border-purple-500/50 shadow-purple-500/10' },
+              { name: 'Rare', bg: 'bg-blue-500/20 text-blue-300 border-blue-500/50 shadow-blue-500/10' }
+            ].map((tier) => {
+              const active = selectedTiers.includes(tier.name);
+              return (
+                <button
+                  key={tier.name}
+                  onClick={() => toggleArrayFilter(setSelectedTiers, selectedTiers, tier.name)}
+                  className={`px-3 py-1 rounded-md text-xs font-medium transition-all ${
+                    active
+                      ? `${tier.bg} border font-bold shadow-sm`
+                      : 'bg-[#0b0e14] text-slate-400 hover:text-slate-200 border border-[#20293a]'
+                  }`}
+                >
+                  {tier.name}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Weapon Types */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-[#20293a]/40">
           <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider font-heading whitespace-nowrap min-w-[70px]">
             Type:
           </span>

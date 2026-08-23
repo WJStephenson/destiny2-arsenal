@@ -5,28 +5,23 @@ import {
   ArrowRightLeft, 
   Zap, 
   RefreshCw, 
-  Lock, 
   Sparkles, 
   LogIn, 
   LogOut, 
   Check, 
   ChevronRight, 
   Box, 
-  Layers, 
   Backpack, 
   ExternalLink,
-  Flame,
-  Moon,
-  Snowflake,
-  Wind,
-  CircleDot,
   Search,
-  Filter
+  Filter,
+  Info
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { getClientItemByHash, initClientManifest } from '../utils/client-manifest';
+import LongPressable from './LongPressable';
 
 export default function GuardianManager({ 
   onSelectWeapon, 
@@ -164,26 +159,43 @@ export default function GuardianManager({
           if (s.plugHash && s.isVisible) {
             const pDef = getClientItemByHash(s.plugHash) || defs[s.plugHash];
             if (pDef && pDef.name && !pDef.name.includes('Empty') && !pDef.name.includes('Tracker') && !pDef.name.includes('Kill') && !pDef.name.includes('Default') && !pDef.name.includes('Shader')) {
-              perks.push(pDef.name);
+              perks.push({
+                hash: s.plugHash,
+                name: pDef.name,
+                icon: pDef.icon,
+                description: pDef.description,
+                isEnhanced: pDef.isEnhanced,
+                stats: pDef.stats
+              });
             }
           }
         });
       }
 
+      // Slot detection
+      let detectedSlot = def.slot;
+      if (!detectedSlot) {
+        if (it.bucketHash === 1498876634) detectedSlot = 'Kinetic';
+        else if (it.bucketHash === 2465295065) detectedSlot = 'Energy';
+        else if (it.bucketHash === 953998645) detectedSlot = 'Power';
+      }
+
       return {
         itemInstanceId: it.itemInstanceId,
         itemHash: it.itemHash,
+        bucketHash: it.bucketHash,
+        slot: detectedSlot,
         name: def.name || `Item #${hash}`,
         icon: def.icon || null,
         iconWatermark: def.iconWatermark || null,
         power: inst?.primaryStat?.value || null,
         tierTypeName: def.tierTypeName || 'Legendary',
         damageType: def.damageType || 'Kinetic',
-        itemTypeDisplayName: def.itemTypeDisplayName || (def.isWeapon ? 'Weapon' : def.isArmor ? 'Armor' : ''),
+        itemTypeDisplayName: def.itemTypeDisplayName || (def.isWeapon ? 'Weapon' : def.isArmor ? 'Armour' : ''),
         weaponType: def.isWeapon ? def.itemTypeDisplayName : null,
         armorSlot: def.isArmor ? def.itemTypeDisplayName : null,
-        isWeapon: def.isWeapon || def.weaponType != null,
-        isArmor: def.isArmor || def.armorSlot != null,
+        isWeapon: def.isWeapon || def.weaponType != null || [1498876634, 2465295065, 953998645].includes(it.bucketHash),
+        isArmor: def.isArmor || def.armorSlot != null || [3448274439, 3551901077, 1423949262, 20886954, 1585787867].includes(it.bucketHash),
         baseItem: def,
         perks
       };
@@ -449,10 +461,25 @@ export default function GuardianManager({
 
   const activeChar = profileData?.characters?.[selectedCharacterIndex];
 
-  const equippedWeapons = activeChar?.equipped?.filter(it => it.isWeapon || it.weaponType != null) || [];
-  const equippedArmor = activeChar?.equipped?.filter(it => it.isArmor || it.armorSlot != null || (!it.isWeapon && it.weaponType == null)) || [];
+  const equippedWeapons = activeChar?.equipped?.filter(it => it.isWeapon) || [];
+  const equippedArmor = activeChar?.equipped?.filter(it => it.isArmor) || [];
   const inventoryItems = activeChar?.bag || [];
   const loadoutsList = activeChar?.loadouts || [];
+
+  // Group weapons by slot
+  const kineticEquipped = equippedWeapons.find(w => w.bucketHash === 1498876634 || w.slot === 'Kinetic') || equippedWeapons[0];
+  const energyEquipped = equippedWeapons.find(w => w.bucketHash === 2465295065 || w.slot === 'Energy') || equippedWeapons[1];
+  const powerEquipped = equippedWeapons.find(w => w.bucketHash === 953998645 || w.slot === 'Power') || equippedWeapons[2];
+
+  const kineticBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 1498876634 || w.slot === 'Kinetic'));
+  const energyBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 2465295065 || w.slot === 'Energy'));
+  const powerBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 953998645 || w.slot === 'Power'));
+
+  const weaponSlots = [
+    { title: 'Kinetic Slot', equipped: kineticEquipped, bag: kineticBag },
+    { title: 'Energy Slot', equipped: energyEquipped, bag: energyBag },
+    { title: 'Power / Heavy Slot', equipped: powerEquipped, bag: powerBag }
+  ];
 
   const filteredVault = (profileData?.vault || []).filter(item => {
     if (vaultFilter === 'weapons' && !item.isWeapon) return false;
@@ -462,7 +489,7 @@ export default function GuardianManager({
       return item.name.toLowerCase().includes(q) || 
         (item.weaponType && item.weaponType.toLowerCase().includes(q)) ||
         (item.armorSlot && item.armorSlot.toLowerCase().includes(q)) ||
-        (item.perks && item.perks.some(p => p.toLowerCase().includes(q)));
+        (item.perks && item.perks.some(p => (p.name || p).toLowerCase().includes(q)));
     }
     return true;
   });
@@ -614,85 +641,161 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 1: EQUIPPED WEAPONS */}
+      {/* Sub-Tab 1: EQUIPPED WEAPONS (With Bag Weapons Swap Row & Perk Icons) */}
       {activeSubTab === 'weapons' && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-            Equipped Weapons on {activeChar?.classType}
-          </h3>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {weaponSlots.map((slotGroup, sIdx) => {
+              const item = slotGroup.equipped;
+              if (!item) return null;
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {equippedWeapons.map((item) => {
               const tierInfo = getTierInfo(item.tierTypeName);
               const damageInfo = getDamageInfo(item.damageType);
 
               return (
                 <div
-                  key={item.itemInstanceId || item.itemHash}
-                  className="bg-[#121722] border border-[#20293a] hover:border-slate-600 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg"
+                  key={sIdx}
+                  className="bg-[#121722] border border-[#20293a] rounded-xl overflow-hidden flex flex-col justify-between shadow-xl"
                 >
-                  <div className={`p-3.5 ${tierInfo.headerBg} border-b border-[#20293a]`}>
-                    <div className="flex items-start gap-3">
-                      
-                      <div className="relative w-14 h-14 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                        {item.icon ? (
-                          <img src={item.icon} alt="" className="w-full h-full object-cover" />
-                        ) : null}
-                        {item.iconWatermark && (
-                          <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
-                        )}
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
-                            {item.tierTypeName}
-                          </span>
-                          {item.damageType && (
-                            <span className={`text-[10px] font-mono ${damageInfo.text}`}>
-                              • {item.damageType}
-                            </span>
-                          )}
-                        </div>
-                        <h4 className="font-bold text-white text-base truncate">{item.name}</h4>
-                        <div className="flex items-center justify-between text-xs mt-0.5">
-                          <span className="text-[11px] text-slate-400 truncate">{item.itemTypeDisplayName}</span>
-                          {item.power && (
-                            <span className="text-amber-400 font-mono font-bold">
-                              ✧ {item.power}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
+                  <div>
+                    {/* Slot Header */}
+                    <div className="px-4 py-2 bg-[#0b0e14] border-b border-[#20293a] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
+                      <span>{slotGroup.title}</span>
+                      <span className="text-[11px] text-amber-400 font-mono">
+                        {item.power ? `✧ ${item.power}` : ''}
+                      </span>
                     </div>
-                  </div>
 
-                  {/* Active Perks */}
-                  <div className="p-3 space-y-2 flex-1">
-                    {item.perks?.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {item.perks.map((p, pIdx) => (
-                          <span
-                            key={pIdx}
-                            className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
+                    {/* Main Equipped Weapon Header */}
+                    <div className={`p-4 ${tierInfo.headerBg} border-b border-[#20293a]`}>
+                      <div className="flex items-start gap-3.5">
+                        
+                        {/* Weapon Thumbnail */}
+                        <div 
+                          onClick={() => onSelectWeapon?.(item.baseItem || item)}
+                          className="relative w-16 h-16 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-md"
+                          title="Click for weapon details"
+                        >
+                          {item.icon && (
+                            <img src={item.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                          )}
+                          {item.iconWatermark && (
+                            <img src={item.iconWatermark} alt="" className="absolute inset-0 w-full h-full pointer-events-none opacity-80" />
+                          )}
+                        </div>
+
+                        {/* Title & Stats */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
+                              {item.tierTypeName}
+                            </span>
+                            {item.damageType && (
+                              <span className={`text-[10px] font-mono ${damageInfo.text}`}>
+                                • {item.damageType}
+                              </span>
+                            )}
+                          </div>
+                          <h4 
+                            onClick={() => onSelectWeapon?.(item.baseItem || item)}
+                            className="font-bold text-white text-base truncate hover:text-amber-300 cursor-pointer transition-colors"
                           >
-                            {p}
-                          </span>
-                        ))}
+                            {item.name}
+                          </h4>
+                          <span className="text-xs text-slate-400 truncate block mt-0.5">{item.itemTypeDisplayName}</span>
+                        </div>
+
                       </div>
-                    )}
+                    </div>
+
+                    {/* Active Perks (Represented as Icon Badges with Long-Press Info!) */}
+                    <div className="p-3.5 space-y-2 border-b border-[#20293a]/60">
+                      <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">
+                        Rolled Perks (Tap/Hold for info):
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {item.perks?.map((p, pIdx) => {
+                          const pObj = typeof p === 'object' ? p : { name: p };
+                          return (
+                            <LongPressable
+                              key={pIdx}
+                              onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                              onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#0b0e14] hover:bg-slate-800 border border-slate-700/80 hover:border-amber-500/50 cursor-pointer transition-all shadow-sm group"
+                              title={pObj.name}
+                            >
+                              {pObj.icon ? (
+                                <img src={pObj.icon} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />
+                              ) : (
+                                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                              )}
+                              <span className="text-xs text-slate-200 font-mono group-hover:text-amber-300">
+                                {pObj.name}
+                              </span>
+                            </LongPressable>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Bag Inventory Quick Swap Row (Smaller Icons Underneath!) */}
+                    <div className="p-3.5 bg-[#0e131d] space-y-2">
+                      <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
+                        <span>Bag ({slotGroup.bag.length}) • Tap to Swap</span>
+                        <span className="text-[10px] text-slate-500">Hold for details</span>
+                      </div>
+
+                      {slotGroup.bag.length > 0 ? (
+                        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                          {slotGroup.bag.map((bagItem) => {
+                            const bTier = getTierInfo(bagItem.tierTypeName);
+                            const isSwapping = actionLoading === bagItem.itemInstanceId;
+
+                            return (
+                              <LongPressable
+                                key={bagItem.itemInstanceId}
+                                onClick={() => handleEquipItem(bagItem.itemInstanceId)}
+                                onLongPress={() => onSelectWeapon?.(bagItem.baseItem || bagItem)}
+                                className={`relative w-12 h-12 rounded-xl bg-black/80 border-2 ${bTier.border || 'border-slate-700'} hover:border-amber-400 p-0.5 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-md flex items-center justify-center overflow-hidden`}
+                                title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
+                              >
+                                {bagItem.icon ? (
+                                  <img src={bagItem.icon} alt="" className="w-full h-full object-cover rounded-lg" />
+                                ) : (
+                                  <span className="text-[10px] text-slate-500 font-mono">D2</span>
+                                )}
+
+                                {bagItem.power && (
+                                  <span className="absolute bottom-0.5 right-0.5 text-[8px] font-mono bg-black/90 text-amber-300 px-1 rounded font-bold leading-tight">
+                                    {bagItem.power}
+                                  </span>
+                                )}
+
+                                {isSwapping && (
+                                  <div className="absolute inset-0 bg-black/75 flex items-center justify-center">
+                                    <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
+                                  </div>
+                                )}
+                              </LongPressable>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500 italic">No alternative weapons in bag</p>
+                      )}
+                    </div>
+
                   </div>
 
-                  {/* Actions */}
-                  <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
+                  {/* Transfer to Vault Footer */}
+                  <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a]">
                     <button
                       disabled={actionLoading === item.itemInstanceId}
                       onClick={() => handleTransferItem(item, true)}
-                      className="w-full py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center justify-center gap-1.5 disabled:opacity-50"
+                      className="w-full py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
                     >
                       <Box className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Transfer to Vault</span>
+                      <span>Transfer Equipped to Vault</span>
                     </button>
                   </div>
 
@@ -703,7 +806,7 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 2: EQUIPPED ARMOR */}
+      {/* Sub-Tab 2: EQUIPPED ARMOUR */}
       {activeSubTab === 'armor' && (
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
@@ -749,21 +852,27 @@ export default function GuardianManager({
                   {/* Active Perks / Mods */}
                   <div className="p-3 space-y-2 flex-1">
                     {item.perks?.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {item.perks.map((p, pIdx) => (
-                          <span
-                            key={pIdx}
-                            className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
-                          >
-                            {p}
-                          </span>
-                        ))}
+                      <div className="flex flex-wrap gap-1.5">
+                        {item.perks.map((p, pIdx) => {
+                          const pObj = typeof p === 'object' ? p : { name: p };
+                          return (
+                            <LongPressable
+                              key={pIdx}
+                              onClick={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                              onLongPress={() => onOpenInfo?.({ ...pObj, type: 'perk' })}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60 hover:border-amber-500/50 cursor-pointer"
+                            >
+                              {pObj.icon && <img src={pObj.icon} alt="" className="w-3.5 h-3.5 rounded" />}
+                              <span>{pObj.name}</span>
+                            </LongPressable>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
 
                   {/* Actions */}
-                  <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
+                  <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a]">
                     <button
                       disabled={actionLoading === item.itemInstanceId}
                       onClick={() => handleTransferItem(item, true)}
@@ -833,14 +942,17 @@ export default function GuardianManager({
                   <div className="p-3 space-y-2 flex-1">
                     {item.perks?.length > 0 && (
                       <div className="flex flex-wrap gap-1">
-                        {item.perks.map((p, pIdx) => (
-                          <span
-                            key={pIdx}
-                            className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
-                          >
-                            {p}
-                          </span>
-                        ))}
+                        {item.perks.map((p, pIdx) => {
+                          const pObj = typeof p === 'object' ? p : { name: p };
+                          return (
+                            <span
+                              key={pIdx}
+                              className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
+                            >
+                              {pObj.name}
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -872,7 +984,7 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 4: IN-GAME LOADOUTS (With Visual Gear Items List!) */}
+      {/* Sub-Tab 4: IN-GAME LOADOUTS */}
       {activeSubTab === 'loadouts' && (
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
@@ -902,7 +1014,7 @@ export default function GuardianManager({
                     </div>
                   </div>
 
-                  {/* Visual Items Grid inside the Loadout */}
+                  {/* Visual Items Grid */}
                   <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-3">
                     {ld.items.map((it, idx) => (
                       <div
@@ -1024,14 +1136,17 @@ export default function GuardianManager({
                   <div className="p-3 space-y-2 flex-1">
                     {item.perks?.length > 0 && (
                       <div className="flex flex-wrap gap-1">
-                        {item.perks.map((p, pIdx) => (
-                          <span
-                            key={pIdx}
-                            className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
-                          >
-                            {p}
-                          </span>
-                        ))}
+                        {item.perks.map((p, pIdx) => {
+                          const pObj = typeof p === 'object' ? p : { name: p };
+                          return (
+                            <span
+                              key={pIdx}
+                              className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
+                            >
+                              {pObj.name}
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
