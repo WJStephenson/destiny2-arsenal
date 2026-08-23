@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Shield, 
   Crosshair, 
@@ -12,10 +12,10 @@ import {
   ChevronRight, 
   Box, 
   Backpack, 
-  ExternalLink,
-  Search,
-  Filter,
-  Info
+  ExternalLink, 
+  Search, 
+  Filter, 
+  Info 
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
@@ -43,35 +43,39 @@ export default function GuardianManager({
   const [vaultSearch, setVaultSearch] = useState('');
   const [vaultFilter, setVaultFilter] = useState('all'); // 'all' | 'weapons' | 'armor'
 
+  // Persistent pending action trackers to prevent Bungie's edge cache from reverting UI
+  const pendingEquipsRef = useRef(new Map());
+  const pendingTransfersRef = useRef(new Map());
+
   useEffect(() => {
     if (authSession?.authenticated) {
-      fetchLiveProfile();
+      fetchLiveProfile(true);
     }
   }, [authSession]);
 
-  const fetchLiveProfile = async () => {
-    setLoading(true);
+  const fetchLiveProfile = async (showLoading = false) => {
+    if (showLoading) setLoading(true);
     try {
       // 1. First attempt local Express backend API (if available)
-      const res = await fetch('/api/inventory/profile');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.characters && data.characters.length > 0) {
-          setProfileData(data);
-          setLoading(false);
-          return;
+      try {
+        const res = await fetch(`/api/inventory/profile?_ts=${Date.now()}`, { cache: 'no-store' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.characters && data.characters.length > 0) {
+            setProfileData(data);
+            if (showLoading) setLoading(false);
+            return;
+          }
         }
-      }
-    } catch (e) {}
+      } catch (e) {}
 
-    // 2. Direct Bungie.net API querying from browser
-    try {
+      // 2. Direct Bungie.net API querying from browser with cache-busting
       const token = await getValidAuthToken();
       const settings = getStoredSettings();
       const session = getStoredAuthSession().session;
 
       if (!token || !session) {
-        setLoading(false);
+        if (showLoading) setLoading(false);
         return;
       }
 
@@ -90,8 +94,9 @@ export default function GuardianManager({
 
       if (membership) {
         const components = '100,102,200,201,205,300,304,305,206';
-        const url = `https://www.bungie.net/Platform/Destiny2/${membership.membershipType}/Profile/${membership.membershipId}/?components=${components}`;
+        const url = `https://www.bungie.net/Platform/Destiny2/${membership.membershipType}/Profile/${membership.membershipId}/?components=${components}&_ts=${Date.now()}`;
         const profileRes = await fetch(url, {
+          cache: 'no-store',
           headers: {
             'X-API-Key': settings.apiKey || '',
             'Authorization': `Bearer ${token}`
@@ -105,7 +110,7 @@ export default function GuardianManager({
     } catch (err) {
       console.error('Failed to fetch live profile:', err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
@@ -119,6 +124,70 @@ export default function GuardianManager({
     const instances = data.itemComponents?.instances?.data || {};
     const socketsMap = data.itemComponents?.sockets?.data || {};
     const statsMap = data.itemComponents?.stats?.data || {};
+    const rawVault = data.profileInventory?.data?.items || [];
+
+    // Reconcile Pending Equips with stale Bungie cache
+    const now = Date.now();
+    for (const [instId, entry] of pendingEquipsRef.current.entries()) {
+      if (now - entry.timestamp > 30000) {
+        pendingEquipsRef.current.delete(instId);
+        continue;
+      }
+      const charId = entry.characterId;
+      const rawEq = equipMap[charId]?.items || [];
+      const rawBg = bagMap[charId]?.items || [];
+
+      const isEquippedInBungie = rawEq.some(it => it.itemInstanceId === instId);
+      if (isEquippedInBungie) {
+        pendingEquipsRef.current.delete(instId);
+      } else {
+        // Bungie CDN is still returning stale data; enforce optimistic equip
+        const bgIdx = rawBg.findIndex(it => it.itemInstanceId === instId);
+        if (bgIdx !== -1) {
+          const itemToEquip = rawBg[bgIdx];
+          const eqIdx = rawEq.findIndex(it => it.bucketHash === itemToEquip.bucketHash);
+          if (eqIdx !== -1) {
+            const oldEq = rawEq[eqIdx];
+            rawEq[eqIdx] = itemToEquip;
+            rawBg[bgIdx] = oldEq;
+          }
+        }
+      }
+    }
+
+    // Reconcile Pending Transfers with stale Bungie cache
+    for (const [instId, entry] of pendingTransfersRef.current.entries()) {
+      if (now - entry.timestamp > 30000) {
+        pendingTransfersRef.current.delete(instId);
+        continue;
+      }
+      const charId = entry.characterId;
+      const rawBg = bagMap[charId]?.items || [];
+
+      if (entry.transferToVault) {
+        const inVault = rawVault.some(it => it.itemInstanceId === instId);
+        if (inVault) {
+          pendingTransfersRef.current.delete(instId);
+        } else {
+          const bgIdx = rawBg.findIndex(it => it.itemInstanceId === instId);
+          if (bgIdx !== -1) {
+            const item = rawBg.splice(bgIdx, 1)[0];
+            rawVault.push(item);
+          }
+        }
+      } else {
+        const inBag = rawBg.some(it => it.itemInstanceId === instId);
+        if (inBag) {
+          pendingTransfersRef.current.delete(instId);
+        } else {
+          const vIdx = rawVault.findIndex(it => it.itemInstanceId === instId);
+          if (vIdx !== -1) {
+            const item = rawVault.splice(vIdx, 1)[0];
+            rawBg.push(item);
+          }
+        }
+      }
+    }
 
     const allHashesToResolve = [];
 
@@ -355,6 +424,12 @@ export default function GuardianManager({
     const character = profileData?.characters?.[selectedCharacterIndex];
     if (!character || !itemInstanceId) return;
 
+    // Track pending equip in ref to protect against stale Bungie CDN cache responses
+    pendingEquipsRef.current.set(itemInstanceId, {
+      characterId: character.characterId,
+      timestamp: Date.now()
+    });
+
     // 1. Immediate Optimistic UI Update (0ms latency)
     setProfileData(prev => {
       if (!prev) return prev;
@@ -410,7 +485,7 @@ export default function GuardianManager({
         if (res.ok) {
           setStatusMessage('Item equipped successfully!');
           // Delay live profile fetch to allow Bungie cache to invalidate
-          setTimeout(() => fetchLiveProfile(false), 2400);
+          setTimeout(() => fetchLiveProfile(false), 3000);
           return;
         }
       } catch (e) {}
@@ -431,12 +506,11 @@ export default function GuardianManager({
       const data = await directRes.json();
       if (data.ErrorCode === 1) {
         setStatusMessage('Item equipped on your Guardian!');
-        // Allow Bungie servers 2.4s to propagate before re-fetching
-        setTimeout(() => fetchLiveProfile(false), 2400);
+        setTimeout(() => fetchLiveProfile(false), 3500);
       } else {
         setStatusMessage(data.Message || 'Action completed');
-        // Rollback on error
-        await fetchLiveProfile();
+        pendingEquipsRef.current.delete(itemInstanceId);
+        await fetchLiveProfile(false);
       }
     } catch (e) {
       setStatusMessage('Request processed');
@@ -449,6 +523,12 @@ export default function GuardianManager({
   const handleTransferItem = async (item, transferToVault = false) => {
     const character = profileData?.characters?.[selectedCharacterIndex];
     if (!character || !item) return;
+
+    pendingTransfersRef.current.set(item.itemInstanceId, {
+      characterId: character.characterId,
+      transferToVault,
+      timestamp: Date.now()
+    });
 
     // 1. Immediate Optimistic UI Update
     setProfileData(prev => {
@@ -492,7 +572,7 @@ export default function GuardianManager({
         });
         if (res.ok) {
           setStatusMessage(transferToVault ? 'Moved to Vault!' : 'Transferred to Character!');
-          setTimeout(() => fetchLiveProfile(false), 2400);
+          setTimeout(() => fetchLiveProfile(false), 3000);
           return;
         }
       } catch (e) {}
@@ -515,10 +595,11 @@ export default function GuardianManager({
       const data = await directRes.json();
       if (data.ErrorCode === 1) {
         setStatusMessage(transferToVault ? 'Moved to Vault!' : `Transferred to ${character.classType}!`);
-        setTimeout(() => fetchLiveProfile(false), 2400);
+        setTimeout(() => fetchLiveProfile(false), 3500);
       } else {
         setStatusMessage(data.Message || 'Transfer complete');
-        await fetchLiveProfile();
+        pendingTransfersRef.current.delete(item.itemInstanceId);
+        await fetchLiveProfile(false);
       }
     } catch (e) {
       setStatusMessage('Transferred via Bungie');
@@ -534,6 +615,15 @@ export default function GuardianManager({
 
     const loadout = character.loadouts?.[loadoutIndex];
     if (loadout && loadout.items?.length > 0) {
+      loadout.items.forEach(ldItem => {
+        if (ldItem.itemInstanceId) {
+          pendingEquipsRef.current.set(ldItem.itemInstanceId, {
+            characterId: character.characterId,
+            timestamp: Date.now()
+          });
+        }
+      });
+
       // Optimistically update equipped items from loadout
       setProfileData(prev => {
         if (!prev) return prev;
@@ -581,7 +671,7 @@ export default function GuardianManager({
         });
         if (res.ok) {
           setStatusMessage(`Loadout #${loadoutIndex + 1} equipped!`);
-          setTimeout(() => fetchLiveProfile(false), 2400);
+          setTimeout(() => fetchLiveProfile(false), 3000);
           return;
         }
       } catch (e) {}
@@ -602,10 +692,10 @@ export default function GuardianManager({
       const data = await directRes.json();
       if (data.ErrorCode === 1) {
         setStatusMessage(`Loadout #${loadoutIndex + 1} active in-game!`);
-        setTimeout(() => fetchLiveProfile(false), 2400);
+        setTimeout(() => fetchLiveProfile(false), 3500);
       } else {
         setStatusMessage(data.Message || `Loadout active`);
-        await fetchLiveProfile();
+        await fetchLiveProfile(false);
       }
     } catch (e) {
       setStatusMessage(`Loadout action processed`);
