@@ -8,6 +8,8 @@
     "server": "node server/index.js",
     "client": "vite --host 0.0.0.0",
     "build": "vite build",
+    "deploy": "npm run build && npx wrangler pages deploy dist",
+    "deploy:ci": "npx wrangler pages deploy dist --project-name=destiny2-arsenal",
     "start": "node server/index.js",
     "sync": "node -e \"require('./server/manifest-service').syncManifest('', true)\""
   },
