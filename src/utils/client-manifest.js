@@ -24,21 +24,25 @@ export async function initClientManifest(onProgress) {
     try {
       if (onProgress) onProgress('Loading Destiny 2 Armory...');
 
-      // 1. Fetch filters metadata first (fast)
-      try {
-        const fRes = await fetch('/data/filters.json');
-        if (fRes.ok) cachedFilters = await fRes.json();
-      } catch (e) {}
-
-      // 2. Fetch weapons, armor, perks in parallel
-      const [wRes, aRes, pRes] = await Promise.all([
-        fetch('/data/weapons.json'),
+      // Fetch all files in parallel (chunked under 10MB each for fast HTTP/2 parallel download)
+      const [fRes, aRes, pRes, w1Res, w2Res, w3Res] = await Promise.all([
+        fetch('/data/filters.json'),
         fetch('/data/armor.json'),
-        fetch('/data/perks.json')
+        fetch('/data/perks.json'),
+        fetch('/data/weapons-1.json'),
+        fetch('/data/weapons-2.json'),
+        fetch('/data/weapons-3.json')
       ]);
 
-      if (wRes.ok) {
-        cachedWeapons = await wRes.json();
+      if (fRes.ok) cachedFilters = await fRes.json();
+
+      if (w1Res.ok && w2Res.ok && w3Res.ok) {
+        const [w1, w2, w3] = await Promise.all([
+          w1Res.json(),
+          w2Res.json(),
+          w3Res.json()
+        ]);
+        cachedWeapons = [...w1, ...w2, ...w3];
         cachedWeapons.forEach(w => {
           if (w.hash) weaponsByHash.set(Number(w.hash), w);
         });
