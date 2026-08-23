@@ -1,0 +1,28 @@
+# Node dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build artifacts
+dist/
+
+# Local data caches & SQLite manifests
+data/*
+!data/.gitkeep
+
+# Sensitive settings & user sessions
+data/settings.json
+data/auth-session.json
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+.system_generated/

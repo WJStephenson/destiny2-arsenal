@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#161c2b" />
+      <stop offset="50%" stop-color="#0e131d" />
+      <stop offset="100%" stop-color="#080a0f" />
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fef08a" />
+      <stop offset="30%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#b45309" />
+    </linearGradient>
+    <linearGradient id="glowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.6" />
+      <stop offset="100%" stop-color="#f59e0b" stop-opacity="0" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="16" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded squircle -->
+  <rect width="512" height="512" rx="115" fill="url(#bgGrad)" />
+  <rect x="6" y="6" width="500" height="500" rx="110" fill="none" stroke="#28354d" stroke-width="4" opacity="0.6" />
+
+  <!-- Outer Hexagon Grid -->
+  <polygon points="256,70 420,165 420,355 256,450 92,355 92,165" fill="none" stroke="#f59e0b" stroke-width="3" opacity="0.25" />
+  <circle cx="256" cy="256" r="160" fill="url(#glowGrad)" opacity="0.1" />
+
+  <!-- Destiny Tricorn Symbol -->
+  <g transform="translate(136, 126) scale(1.0)" filter="url(#glow)">
+    <!-- Top Central Horn -->
+    <path d="M120 15 L145 60 L120 190 L95 60 Z" fill="url(#goldGrad)" />
+    <!-- Left Wing -->
+    <path d="M40 90 L85 115 L105 210 L50 240 L15 150 Z" fill="url(#goldGrad)" />
+    <!-- Right Wing -->
+    <path d="M200 90 L225 150 L190 240 L135 210 L155 115 Z" fill="url(#goldGrad)" />
+    <!-- Center Dot/Diamond -->
+    <circle cx="120" cy="220" r="10" fill="#fef08a" />
+  </g>
+</svg>
