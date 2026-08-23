@@ -10,7 +10,9 @@ import {
   AlertCircle,
   Copy,
   Lock,
-  Sparkles
+  Sparkles,
+  Globe,
+  Info
 } from 'lucide-react';
 import { getStoredSettings, saveStoredSettings } from '../utils/auth-storage';
 
@@ -20,17 +22,17 @@ export default function SettingsModal({
   onTriggerSync, 
   isSyncing 
 }) {
-  // Initialize state immediately from localStorage so it is never blank!
   const initial = getStoredSettings();
   const [apiKey, setApiKey] = useState(initial.apiKey || '');
   const [clientId, setClientId] = useState(initial.clientId || '');
   const [clientSecret, setClientSecret] = useState(initial.clientSecret || '');
   const [savedSettings, setSavedSettings] = useState(false);
   const [copiedRedirect, setCopiedRedirect] = useState(false);
+  const [copiedOrigin, setCopiedOrigin] = useState(false);
 
+  const originUrl = window.location.origin;
   const redirectUri = `${window.location.origin}/oauth/callback`;
 
-  // Fetch server settings as a secondary sync if available
   useEffect(() => {
     fetch('/api/settings')
       .then(res => res.json())
@@ -54,6 +56,12 @@ export default function SettingsModal({
     navigator.clipboard.writeText(redirectUri);
     setCopiedRedirect(true);
     setTimeout(() => setCopiedRedirect(false), 2000);
+  };
+
+  const copyOrigin = () => {
+    navigator.clipboard.writeText(originUrl);
+    setCopiedOrigin(true);
+    setTimeout(() => setCopiedOrigin(false), 2000);
   };
 
   return (
@@ -103,27 +111,63 @@ export default function SettingsModal({
               </a>
             </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Saved automatically in your browser's persistent storage. Create a free confidential app on Bungie.net and paste your credentials below:
-            </p>
+            {/* Bungie Configuration Matching Helper */}
+            <div className="space-y-2">
+              
+              {/* Redirect URL */}
+              <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1">
+                <div className="text-[10px] text-slate-400 uppercase font-mono tracking-wider flex items-center gap-1">
+                  <Globe className="w-3 h-3 text-amber-400" /> Redirect URL in Bungie App:
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <code className="text-xs text-amber-300 font-mono select-all truncate">
+                    {redirectUri}
+                  </code>
+                  <button
+                    onClick={copyRedirect}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300 flex items-center gap-1 flex-shrink-0"
+                  >
+                    {copiedRedirect ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedRedirect ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
 
-            {/* Redirect URL Helper */}
-            <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1">
-              <div className="text-[10px] text-slate-400 uppercase font-mono tracking-wider">
-                Redirect URL to put in Bungie.net App:
+              {/* Origin Header */}
+              <div className="p-3 rounded-lg bg-slate-900/80 border border-slate-800 space-y-1">
+                <div className="text-[10px] text-slate-400 uppercase font-mono tracking-wider flex items-center gap-1">
+                  <Globe className="w-3 h-3 text-sky-400" /> Origin Header in Bungie App:
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <code className="text-xs text-sky-300 font-mono select-all truncate">
+                    {originUrl}
+                  </code>
+                  <button
+                    onClick={copyOrigin}
+                    className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300 flex items-center gap-1 flex-shrink-0"
+                  >
+                    {copiedOrigin ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                    <span>{copiedOrigin ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center justify-between gap-2">
-                <code className="text-xs text-amber-300 font-mono select-all truncate">
-                  {redirectUri}
-                </code>
-                <button
-                  onClick={copyRedirect}
-                  className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[11px] font-mono text-slate-300 flex items-center gap-1"
-                >
-                  {copiedRedirect ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                  <span>{copiedRedirect ? 'Copied' : 'Copy'}</span>
-                </button>
+
+              {/* Origin Match Troubleshooting Callout */}
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 text-xs space-y-1">
+                <span className="font-bold text-amber-300 font-heading uppercase tracking-wide flex items-center gap-1">
+                  <Info className="w-3.5 h-3.5 text-amber-400" /> "Origin Header / Key does not match" Fix:
+                </span>
+                <p className="text-slate-300 leading-relaxed text-[11px]">
+                  In your Bungie Application settings on <a href="https://www.bungie.net/en/Application" target="_blank" rel="noopener noreferrer" className="text-amber-400 underline">bungie.net/en/Application</a>:
+                  <br />
+                  1. Set <strong>OAuth Client Type</strong> to <strong>Confidential</strong>.
+                  <br />
+                  2. Set <strong>Redirect URL</strong> to exactly <code className="text-amber-300">{redirectUri}</code>
+                  <br />
+                  3. Set <strong>Origin Header</strong> to <code className="text-sky-300">{originUrl}</code> (or leave empty if optional).
+                </p>
               </div>
+
             </div>
 
             {/* API Key */}
