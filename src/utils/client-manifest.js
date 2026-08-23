@@ -230,7 +230,14 @@ export async function searchArmorClient(filters = {}) {
 
   if (filters.search && filters.search.trim()) {
     const q = filters.search.trim().toLowerCase();
-    results = results.filter(a => a.name.toLowerCase().includes(q) || (a.exoticPerk?.name && a.exoticPerk.name.toLowerCase().includes(q)));
+    results = results.filter(a => 
+      a.name.toLowerCase().includes(q) || 
+      (a.setName && a.setName.toLowerCase().includes(q)) ||
+      (a.setCategory && a.setCategory.toLowerCase().includes(q)) ||
+      (a.setIntrinsicPerk && a.setIntrinsicPerk.toLowerCase().includes(q)) ||
+      (a.sourceString && a.sourceString.toLowerCase().includes(q)) ||
+      (a.exoticPerk?.name && a.exoticPerk.name.toLowerCase().includes(q))
+    );
   }
 
   if (filters.classType && filters.classType !== 'All') {
@@ -238,11 +245,23 @@ export async function searchArmorClient(filters = {}) {
   }
 
   if (filters.slot && filters.slot !== 'All') {
-    results = results.filter(a => a.slot === filters.slot);
+    results = results.filter(a => (a.armorSlot === filters.slot) || (a.slot === filters.slot));
   }
 
   if (filters.tier && filters.tier !== 'All') {
     results = results.filter(a => a.tierTypeName === filters.tier);
+  }
+
+  if (filters.setCategory && filters.setCategory !== 'All') {
+    results = results.filter(a => a.setCategory === filters.setCategory);
+  }
+
+  if (filters.setName && filters.setName !== 'All') {
+    results = results.filter(a => a.setName === filters.setName);
+  }
+
+  if (filters.artificeOnly === true || filters.artificeOnly === 'true') {
+    results = results.filter(a => a.isArtifice);
   }
 
   const total = results.length;

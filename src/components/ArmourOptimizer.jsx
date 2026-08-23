@@ -15,7 +15,9 @@ import {
   Box,
   ChevronRight,
   TrendingUp,
-  AlertCircle
+  AlertCircle,
+  HelpCircle,
+  Award
 } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
 import LongPressable from './LongPressable';
@@ -38,40 +40,53 @@ export default function ArmourOptimizer({
     strength: 2
   });
 
+  // Subclass Fragment Stat Modifiers (-20 to +40)
+  const [fragmentBonus, setFragmentBonus] = useState({
+    mobility: 0,
+    resilience: 10,
+    recovery: 0,
+    discipline: 0,
+    intellect: 0,
+    strength: 0
+  });
+
   const [assumeMasterwork, setAssumeMasterwork] = useState(true);
+  const [assumeArtifice, setAssumeArtifice] = useState(false);
   const [selectedExoticHash, setSelectedExoticHash] = useState('any'); // 'any' | 'none' | itemHash (number)
+  const [selectedSetFilter, setSelectedSetFilter] = useState('any'); // 'any' | 'artifice' | 'iron_banner' | 'raid' | 'moments_of_triumph'
+  const [showSandboxGuide, setShowSandboxGuide] = useState(false);
   const [isBuilding, setIsBuilding] = useState(false);
   const [buildingStatus, setBuildingStatus] = useState(null);
 
   const statMeta = [
-    { key: 'mobility', label: 'Mobility', short: 'MOB', color: 'text-sky-400', bg: 'bg-sky-500/20', border: 'border-sky-500/40' },
-    { key: 'resilience', label: 'Resilience', short: 'RES', color: 'text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500/40' },
-    { key: 'recovery', label: 'Recovery', short: 'REC', color: 'text-emerald-400', bg: 'bg-emerald-500/20', border: 'border-emerald-500/40' },
-    { key: 'discipline', label: 'Discipline', short: 'DIS', color: 'text-indigo-400', bg: 'bg-indigo-500/20', border: 'border-indigo-500/40' },
-    { key: 'intellect', label: 'Intellect', short: 'INT', color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/40' },
-    { key: 'strength', label: 'Strength', short: 'STR', color: 'text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/40' }
+    { key: 'mobility', label: 'Mobility', short: 'MOB', color: 'text-sky-400', bg: 'bg-sky-500/20', border: 'border-sky-500/40', desc: '+40% Strafe Speed & Hunter Dodge CD' },
+    { key: 'resilience', label: 'Resilience', short: 'RES', color: 'text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500/40', desc: '+30% PvE Damage Resistance & Titan Barricade CD' },
+    { key: 'recovery', label: 'Recovery', short: 'REC', color: 'text-emerald-400', bg: 'bg-emerald-500/20', border: 'border-emerald-500/40', desc: '+43% Faster Health Regen & Warlock Rift CD' },
+    { key: 'discipline', label: 'Discipline', short: 'DIS', color: 'text-indigo-400', bg: 'bg-indigo-500/20', border: 'border-indigo-500/40', desc: '-64% Grenade Ability Cooldown' },
+    { key: 'intellect', label: 'Intellect', short: 'INT', color: 'text-purple-400', bg: 'bg-purple-500/20', border: 'border-purple-500/40', desc: 'Fast Super Cooldown Passive Scaling' },
+    { key: 'strength', label: 'Strength', short: 'STR', color: 'text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500/40', desc: '-64% Powered Melee Cooldown' }
   ];
 
-  // Presets
+  // Presets (Modern Meta & Moments of Triumph Sandbox)
   const presets = [
     {
       name: 'Triple 100 (Resil / Recov / Disc)',
-      desc: 'PvE Meta Tank & Abilities',
+      desc: 'PvE Meta Tank & Abilities (30% DR + Fast Grenades)',
       tiers: { mobility: 1, resilience: 10, recovery: 10, discipline: 10, intellect: 2, strength: 2 }
     },
     {
-      name: 'PvP Mobility / Recovery / Disc',
-      desc: 'High Agility & Health Regen',
+      name: 'Hunter Mobility / Recov / Disc',
+      desc: 'Max Dodge & Agility for Hunter Meta',
       tiers: { mobility: 10, resilience: 3, recovery: 10, discipline: 10, intellect: 2, strength: 2 }
     },
     {
-      name: 'Super & Intellect Focus',
-      desc: 'Rapid Super & Resilience',
+      name: 'Super & Intellect Raid Focus',
+      desc: 'Moments of Triumph / Raid DPS Rotations',
       tiers: { mobility: 2, resilience: 10, recovery: 8, discipline: 4, intellect: 10, strength: 2 }
     },
     {
       name: 'Melee Brawler (Strength / Resil)',
-      desc: 'Heavy Melee & Damage Resistance',
+      desc: 'Heavy Melee & Survival (Titan / Hunter Prismatic)',
       tiers: { mobility: 2, resilience: 10, recovery: 8, discipline: 2, intellect: 2, strength: 10 }
     }
   ];
@@ -91,7 +106,6 @@ export default function ArmourOptimizer({
     if (item.armorStats && typeof item.armorStats === 'object') {
       return item.armorStats;
     }
-    // Fallback if not direct
     let mob = 0, res = 0, rec = 0, dis = 0, int = 0, str = 0;
     if (item.statsList) {
       item.statsList.forEach(s => {
@@ -141,7 +155,6 @@ export default function ArmourOptimizer({
     // 3. In Vault
     (vault || []).forEach(it => {
       if (it.isArmor) {
-        // Filter class
         const itemClass = it.classType || (it.itemTypeDisplayName?.includes('Titan') ? 'Titan' : it.itemTypeDisplayName?.includes('Hunter') ? 'Hunter' : it.itemTypeDisplayName?.includes('Warlock') ? 'Warlock' : null);
         if (!itemClass || itemClass === charClass) {
           const slot = getArmorSlotName(it);
@@ -171,14 +184,25 @@ export default function ArmourOptimizer({
   const calculatedBuilds = useMemo(() => {
     if (allOwnedArmor.length === 0) return [];
 
-    // Group items by 5 slots
-    const helmets = allOwnedArmor.filter(it => it.slotType === 'helmet');
-    const arms = allOwnedArmor.filter(it => it.slotType === 'gauntlets');
-    const chests = allOwnedArmor.filter(it => it.slotType === 'chest');
-    const legs = allOwnedArmor.filter(it => it.slotType === 'legs');
-    const classItems = allOwnedArmor.filter(it => it.slotType === 'classItem');
+    // Apply set filters if chosen
+    let filteredPool = allOwnedArmor;
+    if (selectedSetFilter === 'artifice') {
+      filteredPool = allOwnedArmor.filter(it => it.isArtifice || it.tierTypeName === 'Exotic');
+    } else if (selectedSetFilter === 'iron_banner') {
+      filteredPool = allOwnedArmor.filter(it => it.setName?.includes('Iron') || it.name?.includes('Iron') || it.tierTypeName === 'Exotic');
+    } else if (selectedSetFilter === 'raid') {
+      filteredPool = allOwnedArmor.filter(it => it.setCategory === 'Raids & Dungeons' || it.tierTypeName === 'Exotic');
+    } else if (selectedSetFilter === 'moments_of_triumph') {
+      filteredPool = allOwnedArmor.filter(it => it.setName?.includes('Triumph') || it.tierTypeName === 'Exotic');
+    }
 
-    // If any slot is completely empty, fallback with dummy piece
+    // Group items by 5 slots
+    const helmets = filteredPool.filter(it => it.slotType === 'helmet');
+    const arms = filteredPool.filter(it => it.slotType === 'gauntlets');
+    const chests = filteredPool.filter(it => it.slotType === 'chest');
+    const legs = filteredPool.filter(it => it.slotType === 'legs');
+    const classItems = filteredPool.filter(it => it.slotType === 'classItem');
+
     const dummyClass = classItems.length > 0 ? classItems : [{
       name: `${activeChar?.classType || ''} Class Item`,
       tierTypeName: 'Legendary',
@@ -188,7 +212,7 @@ export default function ArmourOptimizer({
 
     const results = [];
 
-    // Limit pool per slot to best stat rolls to keep combinatorial search fast (< 20ms)
+    // Limit pool per slot to best rolls to keep search under 20ms
     const topH = helmets.slice(0, 14);
     const topA = arms.slice(0, 14);
     const topC = chests.slice(0, 14);
@@ -203,29 +227,31 @@ export default function ArmourOptimizer({
     const targetStr = (targetTiers.strength || 0) * 10;
 
     const mwBonus = assumeMasterwork ? 10 : 0; // +2 per piece across 5 pieces = +10
+    const artificePerPiece = assumeArtifice ? 3 : 0;
 
     for (const h of topH) {
       for (const a of topA) {
         for (const c of topC) {
           for (const l of topL) {
             for (const ci of topCI) {
-              const exoticsCount = [h, a, c, l, ci].filter(it => it.tierTypeName === 'Exotic').length;
-              if (exoticsCount > 1) continue; // Destiny 2 allows at most 1 exotic armor
+              const pieces = [h, a, c, l, ci];
+              const exoticsCount = pieces.filter(it => it.tierTypeName === 'Exotic').length;
+              if (exoticsCount > 1) continue; // Maximum 1 exotic
 
               // Check locked exotic filter
               if (selectedExoticHash === 'none' && exoticsCount > 0) continue;
               if (selectedExoticHash !== 'any' && selectedExoticHash !== 'none') {
-                const hasSelectedExotic = [h, a, c, l, ci].some(it => String(it.itemHash || it.id) === String(selectedExoticHash));
+                const hasSelectedExotic = pieces.some(it => String(it.itemHash || it.id) === String(selectedExoticHash));
                 if (!hasSelectedExotic) continue;
               }
 
-              // Base stats sum
-              const rawMob = h.stats.mobility + a.stats.mobility + c.stats.mobility + l.stats.mobility + ci.stats.mobility + mwBonus;
-              const rawRes = h.stats.resilience + a.stats.resilience + c.stats.resilience + l.stats.resilience + ci.stats.resilience + mwBonus;
-              const rawRec = h.stats.recovery + a.stats.recovery + c.stats.recovery + l.stats.recovery + ci.stats.recovery + mwBonus;
-              const rawDis = h.stats.discipline + a.stats.discipline + c.stats.discipline + l.stats.discipline + ci.stats.discipline + mwBonus;
-              const rawInt = h.stats.intellect + a.stats.intellect + c.stats.intellect + l.stats.intellect + ci.stats.intellect + mwBonus;
-              const rawStr = h.stats.strength + a.stats.strength + c.stats.strength + l.stats.strength + ci.stats.strength + mwBonus;
+              // Base stats sum + Masterwork bonus + Fragment bonus
+              const rawMob = h.stats.mobility + a.stats.mobility + c.stats.mobility + l.stats.mobility + ci.stats.mobility + mwBonus + (fragmentBonus.mobility || 0);
+              const rawRes = h.stats.resilience + a.stats.resilience + c.stats.resilience + l.stats.resilience + ci.stats.resilience + mwBonus + (fragmentBonus.resilience || 0);
+              const rawRec = h.stats.recovery + a.stats.recovery + c.stats.recovery + l.stats.recovery + ci.stats.recovery + mwBonus + (fragmentBonus.recovery || 0);
+              const rawDis = h.stats.discipline + a.stats.discipline + c.stats.discipline + l.stats.discipline + ci.stats.discipline + mwBonus + (fragmentBonus.discipline || 0);
+              const rawInt = h.stats.intellect + a.stats.intellect + c.stats.intellect + l.stats.intellect + ci.stats.intellect + mwBonus + (fragmentBonus.intellect || 0);
+              const rawStr = h.stats.strength + a.stats.strength + c.stats.strength + l.stats.strength + ci.stats.strength + mwBonus + (fragmentBonus.strength || 0);
 
               // Calculate stat deficit against targets
               const defMob = Math.max(0, targetMob - rawMob);
@@ -235,7 +261,11 @@ export default function ArmourOptimizer({
               const defInt = Math.max(0, targetInt - rawInt);
               const defStr = Math.max(0, targetStr - rawStr);
 
-              // Calculate required major (+10) and minor (+5) stat mods
+              // Count available artifice slots in this specific set
+              const actualArtificeCount = pieces.filter(it => it.isArtifice).length;
+              const totalArtificeSlots = assumeArtifice ? 5 : actualArtificeCount;
+
+              // Calculate required major (+10) and minor (+5) stat mods (up to 5 mod slots)
               const modsNeeded = [];
               let modsCount = 0;
 
@@ -254,7 +284,6 @@ export default function ArmourOptimizer({
                 return Math.max(0, remaining);
               };
 
-              // Prioritize highest deficit stats
               let remMob = addModsForStat(defMob, 'Mobility', 'MOB');
               let remRes = addModsForStat(defRes, 'Resilience', 'RES');
               let remRec = addModsForStat(defRec, 'Recovery', 'REC');
@@ -262,13 +291,34 @@ export default function ArmourOptimizer({
               let remInt = addModsForStat(defInt, 'Intellect', 'INT');
               let remStr = addModsForStat(defStr, 'Strength', 'STR');
 
-              // Final stats after mods
-              const modMobBonus = modsNeeded.filter(m => m.short === 'MOB').reduce((acc, m) => acc + m.value, 0);
-              const modResBonus = modsNeeded.filter(m => m.short === 'RES').reduce((acc, m) => acc + m.value, 0);
-              const modRecBonus = modsNeeded.filter(m => m.short === 'REC').reduce((acc, m) => acc + m.value, 0);
-              const modDisBonus = modsNeeded.filter(m => m.short === 'DIS').reduce((acc, m) => acc + m.value, 0);
-              const modIntBonus = modsNeeded.filter(m => m.short === 'INT').reduce((acc, m) => acc + m.value, 0);
-              const modStrBonus = modsNeeded.filter(m => m.short === 'STR').reduce((acc, m) => acc + m.value, 0);
+              // Allocate Artifice +3 bonus slots to remaining deficits if available
+              let artificeAssigned = 0;
+              const artificeMods = [];
+              const applyArtifice = (deficit, statName, shortName) => {
+                let rem = deficit;
+                while (rem > 0 && artificeAssigned < totalArtificeSlots) {
+                  artificeMods.push({ stat: statName, short: shortName, value: 3, label: `+3 ${statName} (Artifice)` });
+                  rem = Math.max(0, rem - 3);
+                  artificeAssigned++;
+                }
+                return rem;
+              };
+
+              remMob = applyArtifice(remMob, 'Mobility', 'MOB');
+              remRes = applyArtifice(remRes, 'Resilience', 'RES');
+              remRec = applyArtifice(remRec, 'Recovery', 'REC');
+              remDis = applyArtifice(remDis, 'Discipline', 'DIS');
+              remInt = applyArtifice(remInt, 'Intellect', 'INT');
+              remStr = applyArtifice(remStr, 'Strength', 'STR');
+
+              // Final stats after mods + artifice
+              const allAssignedMods = [...modsNeeded, ...artificeMods];
+              const modMobBonus = allAssignedMods.filter(m => m.short === 'MOB').reduce((acc, m) => acc + m.value, 0);
+              const modResBonus = allAssignedMods.filter(m => m.short === 'RES').reduce((acc, m) => acc + m.value, 0);
+              const modRecBonus = allAssignedMods.filter(m => m.short === 'REC').reduce((acc, m) => acc + m.value, 0);
+              const modDisBonus = allAssignedMods.filter(m => m.short === 'DIS').reduce((acc, m) => acc + m.value, 0);
+              const modIntBonus = allAssignedMods.filter(m => m.short === 'INT').reduce((acc, m) => acc + m.value, 0);
+              const modStrBonus = allAssignedMods.filter(m => m.short === 'STR').reduce((acc, m) => acc + m.value, 0);
 
               const finalMob = rawMob + modMobBonus;
               const finalRes = rawRes + modResBonus;
@@ -285,8 +335,6 @@ export default function ArmourOptimizer({
               const tierStr = Math.min(10, Math.floor(finalStr / 10));
 
               const totalTiers = tierMob + tierRes + tierRec + tierDis + tierInt + tierStr;
-
-              // Total unspent / wasted stat points
               const wastedStats = (finalMob % 10) + (finalRes % 10) + (finalRec % 10) + (finalDis % 10) + (finalInt % 10) + (finalStr % 10);
 
               const isPerfectMatch = remMob === 0 && remRes === 0 && remRec === 0 && remDis === 0 && remInt === 0 && remStr === 0 &&
@@ -298,7 +346,7 @@ export default function ArmourOptimizer({
                 tierStr >= (targetTiers.strength || 0);
 
               results.push({
-                pieces: [h, a, c, l, ci],
+                pieces,
                 stats: {
                   mobility: finalMob,
                   resilience: finalRes,
@@ -317,7 +365,7 @@ export default function ArmourOptimizer({
                 },
                 totalTiers,
                 wastedStats,
-                modsNeeded,
+                modsNeeded: allAssignedMods,
                 isPerfectMatch
               });
             }
@@ -326,7 +374,7 @@ export default function ArmourOptimizer({
       }
     }
 
-    // Sort: Perfect matches first, then highest total tiers, then lowest wasted points
+    // Sort results
     results.sort((a, b) => {
       if (a.isPerfectMatch && !b.isPerfectMatch) return -1;
       if (!a.isPerfectMatch && b.isPerfectMatch) return 1;
@@ -335,7 +383,7 @@ export default function ArmourOptimizer({
     });
 
     return results.slice(0, 15);
-  }, [allOwnedArmor, targetTiers, assumeMasterwork, selectedExoticHash, activeChar]);
+  }, [allOwnedArmor, targetTiers, fragmentBonus, assumeMasterwork, assumeArtifice, selectedExoticHash, selectedSetFilter, activeChar]);
 
   const handleApplyPreset = (preset) => {
     setTargetTiers(preset.tiers);
@@ -349,6 +397,13 @@ export default function ArmourOptimizer({
     });
   };
 
+  const handleFragmentChange = (statKey, val) => {
+    setFragmentBonus(prev => ({
+      ...prev,
+      [statKey]: parseInt(val || 0, 10)
+    }));
+  };
+
   const handleEquipBuild = async (build) => {
     if (!build || isBuilding) return;
     setIsBuilding(true);
@@ -358,14 +413,12 @@ export default function ArmourOptimizer({
       for (const piece of build.pieces) {
         if (!piece.itemInstanceId) continue;
 
-        // If piece is in vault, transfer to character first
         if (piece.location === 'vault') {
           setBuildingStatus(`Transferring ${piece.name} from Vault...`);
           await onTransferItem?.(piece, false);
           await new Promise(r => setTimeout(r, 600));
         }
 
-        // Equip the piece
         setBuildingStatus(`Equipping ${piece.name}...`);
         await onEquipItem?.(piece.itemInstanceId);
         await new Promise(r => setTimeout(r, 400));
@@ -383,33 +436,78 @@ export default function ArmourOptimizer({
   return (
     <div className="space-y-6 animate-fadeIn">
       
-      {/* Top Banner & Strategy Description */}
+      {/* Top Banner & Sandbox Features */}
       <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-r from-amber-500/15 via-[#121722] to-indigo-500/15 border border-amber-500/30 shadow-xl space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
+          <div className="flex items-center gap-2.5">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400">
               <Cpu className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base sm:text-lg font-bold text-white font-heading tracking-wide">
-                Armour Stat Optimizer & Loadout Builder
-              </h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-bold text-white font-heading tracking-wide">
+                  Armour Stat Optimizer & Loadout Builder
+                </h2>
+                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold uppercase">
+                  Moments of Triumph Sandbox
+                </span>
+              </div>
               <p className="text-xs text-slate-400">
-                Cross-references {allOwnedArmor.length} armour pieces across your {activeChar?.classType} (Equipped, Bag & Vault) with mods
+                Cross-references {allOwnedArmor.length} armour pieces across your {activeChar?.classType} (Equipped, Bag & Vault) with +10/+5 mods & Artifice slots
               </p>
             </div>
           </div>
 
-          <label className="flex items-center gap-2 text-xs font-mono text-slate-300 bg-black/50 px-3 py-1.5 rounded-lg border border-slate-800 cursor-pointer hover:border-slate-700">
-            <input
-              type="checkbox"
-              checked={assumeMasterwork}
-              onChange={(e) => setAssumeMasterwork(e.target.checked)}
-              className="accent-amber-500 w-4 h-4 rounded cursor-pointer"
-            />
-            <span>Assume Masterworked (+2 all stats)</span>
-          </label>
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-black/50 px-2.5 py-1.5 rounded-lg border border-slate-800 cursor-pointer hover:border-slate-700">
+              <input
+                type="checkbox"
+                checked={assumeMasterwork}
+                onChange={(e) => setAssumeMasterwork(e.target.checked)}
+                className="accent-amber-500 w-3.5 h-3.5 rounded cursor-pointer"
+              />
+              <span>Masterwork (+2 all)</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 text-xs font-mono text-indigo-300 bg-indigo-950/40 px-2.5 py-1.5 rounded-lg border border-indigo-500/30 cursor-pointer hover:border-indigo-500/50">
+              <input
+                type="checkbox"
+                checked={assumeArtifice}
+                onChange={(e) => setAssumeArtifice(e.target.checked)}
+                className="accent-indigo-500 w-3.5 h-3.5 rounded cursor-pointer"
+              />
+              <span>+3 Artifice Slots</span>
+            </label>
+
+            <button
+              onClick={() => setShowSandboxGuide(!showSandboxGuide)}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-mono text-slate-300 transition-colors"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
+              <span>Stat Benefits</span>
+            </button>
+          </div>
         </div>
+
+        {/* Current Sandbox Scaling Sheet */}
+        {showSandboxGuide && (
+          <div className="p-3.5 rounded-xl bg-[#0b0e14] border border-amber-500/30 space-y-2 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-amber-300 font-heading uppercase tracking-wider">
+                Current Destiny 2 Sandbox Stat Benefits (Moments of Triumph / Episodes)
+              </h4>
+              <button onClick={() => setShowSandboxGuide(false)} className="text-slate-400 hover:text-white text-xs">✕</button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 text-xs font-mono">
+              {statMeta.map(st => (
+                <div key={st.key} className="p-2 rounded-lg bg-slate-900/80 border border-slate-800 space-y-0.5">
+                  <span className={`font-bold ${st.color}`}>{st.short} • {st.label}</span>
+                  <p className="text-[11px] text-slate-300">{st.desc}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Quick Presets Row */}
         <div className="pt-2 border-t border-white/5">
@@ -443,8 +541,8 @@ export default function ArmourOptimizer({
               <Sliders className="w-4 h-4 text-amber-400" />
               Target Stat Distribution
             </h3>
-            <span className="text-xs font-mono text-amber-400">
-              Total Target: {Object.values(targetTiers).reduce((a, b) => a + b, 0) * 10} / 360
+            <span className="text-xs font-mono text-amber-400 font-bold">
+              Target Total: {Object.values(targetTiers).reduce((a, b) => a + b, 0) * 10} / 360
             </span>
           </div>
 
@@ -494,24 +592,51 @@ export default function ArmourOptimizer({
               );
             })}
           </div>
+
+          {/* Subclass Fragment Stat Tuning */}
+          <div className="pt-2 border-t border-[#20293a]">
+            <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block mb-1.5">
+              Subclass Fragment Stat Tuning (Optional):
+            </span>
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+              {statMeta.map(st => (
+                <div key={st.key} className="space-y-0.5">
+                  <span className={`text-[10px] font-mono font-bold ${st.color}`}>{st.short}</span>
+                  <select
+                    value={fragmentBonus[st.key] || 0}
+                    onChange={(e) => handleFragmentChange(st.key, e.target.value)}
+                    className="w-full bg-[#0b0e14] border border-slate-700 rounded-lg p-1 text-[11px] font-mono text-slate-200 text-center"
+                  >
+                    <option value="-20">-20</option>
+                    <option value="-10">-10</option>
+                    <option value="0">+0</option>
+                    <option value="10">+10</option>
+                    <option value="20">+20</option>
+                    <option value="30">+30</option>
+                  </select>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
 
-        {/* Right: Exotic Armor Selection */}
+        {/* Right: Exotic Armor Selection & Set Filter */}
         <div className="bg-[#121722] border border-[#20293a] rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg flex flex-col justify-between">
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-[#20293a] pb-3">
               <h3 className="text-sm font-bold text-white uppercase tracking-wider font-heading flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-400" />
-                Exotic Armour Lock
+                Exotic & Set Filter
               </h3>
               <span className="text-xs font-mono text-slate-400">
-                {availableExotics.length} Owned
+                {availableExotics.length} Exotics
               </span>
             </div>
 
-            <div className="space-y-2">
-              <label className="text-xs text-slate-400 font-mono block">Build around specific Exotic:</label>
-              
+            {/* Exotic Picker */}
+            <div className="space-y-1.5">
+              <label className="text-xs text-slate-400 font-mono block">Lock Specific Exotic:</label>
               <select
                 value={selectedExoticHash}
                 onChange={(e) => setSelectedExoticHash(e.target.value)}
@@ -527,14 +652,30 @@ export default function ArmourOptimizer({
               </select>
             </div>
 
+            {/* Set Filter */}
+            <div className="space-y-1.5 pt-1">
+              <label className="text-xs text-slate-400 font-mono block">Armour Set Preference:</label>
+              <select
+                value={selectedSetFilter}
+                onChange={(e) => setSelectedSetFilter(e.target.value)}
+                className="w-full bg-[#0b0e14] border border-slate-700 rounded-xl p-2.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
+              >
+                <option value="any">🌐 Any Armour Sets (Highest Stats)</option>
+                <option value="artifice">💠 Prioritize Artifice Dungeon Sets</option>
+                <option value="iron_banner">⚔️ Prioritize Iron Banner Sets (Iron Lord's Pride)</option>
+                <option value="raid">🏆 Prioritize Raid / Dungeon Sets</option>
+                <option value="moments_of_triumph">🌟 Prioritize Moments of Triumph Sets</option>
+              </select>
+            </div>
+
             <p className="text-[11px] text-slate-400 leading-relaxed bg-[#0b0e14] p-3 rounded-xl border border-slate-800">
-              The optimizer automatically factors in your character's exotic piece, calculates masterwork stat bumps (+2 each), and allocates up to 5 Armor Stat Mods.
+              Calculates combinations across your {activeChar?.classType}'s gear, solves optimal +10/+5 mods, factors in Masterwork bumps, and arranges 1-tap equips.
             </p>
           </div>
 
           <div className="text-xs font-mono text-amber-400 pt-2 flex items-center gap-1.5">
             <Check className="w-4 h-4" />
-            <span>{calculatedBuilds.length} Build Combinations Generated</span>
+            <span>{calculatedBuilds.length} Optimized Sets Found</span>
           </div>
         </div>
 
@@ -556,7 +697,7 @@ export default function ArmourOptimizer({
             Optimized Armour Set Combinations ({calculatedBuilds.length})
           </h3>
           <span className="text-xs text-slate-400 font-mono">
-            Sorted by target match & highest tier
+            Ranked by target match & highest tiers
           </span>
         </div>
 
@@ -565,7 +706,7 @@ export default function ArmourOptimizer({
             <AlertCircle className="w-8 h-8 text-amber-400 mx-auto opacity-60" />
             <h4 className="text-base font-bold text-white font-heading">No Valid Builds Found</h4>
             <p className="text-xs text-slate-400 max-w-md mx-auto">
-              Try reducing target tier requirements (e.g. lowering Tier 10 goals) or changing the Exotic Armour filter.
+              Try reducing target tier requirements (e.g. lowering Tier 10 goals) or changing the Exotic / Set filter.
             </p>
           </div>
         ) : (
@@ -591,7 +732,7 @@ export default function ArmourOptimizer({
                       </span>
                     )}
                     <span className="text-xs font-mono text-slate-400">
-                      {build.wastedStats} Wasted Stat Points
+                      {build.wastedStats} Wasted Points
                     </span>
                   </div>
 
@@ -623,6 +764,11 @@ export default function ArmourOptimizer({
                             {piece.icon && (
                               <img src={piece.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                             )}
+                            {piece.isArtifice && (
+                              <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 rounded-bl text-[7px] flex items-center justify-center font-bold text-white">
+                                A
+                              </div>
+                            )}
                           </div>
                           <div className="min-w-0 flex-1">
                             <span className={`text-[9px] font-mono font-bold uppercase block ${tier.text}`}>
@@ -634,7 +780,7 @@ export default function ArmourOptimizer({
                           </div>
                         </div>
 
-                        {/* Location Tag & Total Stat */}
+                        {/* Set Tag / Location Tag & Total Stat */}
                         <div className="flex items-center justify-between text-[10px] font-mono pt-1 border-t border-slate-800/80">
                           <span className={`px-1.5 py-0.2 rounded font-bold uppercase ${
                             piece.location === 'equipped' 
@@ -658,14 +804,18 @@ export default function ArmourOptimizer({
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
                   <div className="space-y-1">
                     <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider block">
-                      Required Armour Stat Mods:
+                      Required Armour Stat & Artifice Mods:
                     </span>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {build.modsNeeded.length > 0 ? (
                         build.modsNeeded.map((mod, mIdx) => (
                           <span
                             key={mIdx}
-                            className="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-900 text-amber-300 border border-amber-500/30 flex items-center gap-1"
+                            className={`text-[11px] font-mono px-2 py-0.5 rounded border flex items-center gap-1 ${
+                              mod.value === 3 
+                                ? 'bg-indigo-950/60 text-indigo-300 border-indigo-500/40' 
+                                : 'bg-slate-900 text-amber-300 border-amber-500/30'
+                            }`}
                           >
                             <Zap className="w-3 h-3 text-amber-400" />
                             {mod.label}
@@ -673,7 +823,7 @@ export default function ArmourOptimizer({
                         ))
                       ) : (
                         <span className="text-xs font-mono text-emerald-400">
-                          ✓ No Stat Mods required! Reached with raw armor stats.
+                          ✓ No Stat Mods required! Target met with raw armor stats.
                         </span>
                       )}
                     </div>
