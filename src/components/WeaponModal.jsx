@@ -16,8 +16,24 @@ import {
   Award,
   ShieldAlert
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo, getSourceCategoryBadge, withoutDuplicateEnhancedPerks } from '../utils/destiny-helpers';
 import LongPressable from './LongPressable';
+import PerkIcon from './PerkIcon';
+
+/**
+ * Column headers have one line at roughly seven characters before they
+ * truncate, and the raw names collapse into unreadable stubs there -- two
+ * different sockets both render as "PERK CO...". These are the short forms;
+ * anything unlisted falls back to its own name.
+ */
+const COLUMN_LABELS = {
+  'Barrel/Sight': 'BARREL',
+  'Magazine/Battery': 'MAG',
+  'Perk Column 3': 'PERK 1',
+  'Perk Column 4': 'PERK 2',
+  'Trait': 'TRAIT',
+  'Origin Trait': 'ORIGIN'
+};
 
 export default function WeaponModal({ 
   weapon, 
@@ -303,54 +319,65 @@ export default function WeaponModal({
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-                {weapon.socketColumns.map((col, cIdx) => (
-                  <div key={cIdx} className="bg-[#0b0e14] border border-[#20293a] rounded-xl p-3 space-y-2">
-                    <div className="text-xs font-bold text-slate-400 uppercase tracking-wider font-mono border-b border-[#20293a] pb-1 flex justify-between items-center">
-                      <span>{col.type}</span>
-                      <span className="text-[10px] text-slate-600">({col.perks?.length || 0})</span>
+              {/* Laid out the way the roll actually reads: one column per
+                  socket, perks as icons only. The column header stays -- without
+                  it the grid has no meaning -- but the perks themselves carry
+                  their name in `title` and `alt` rather than on screen, so the
+                  matrix stays scannable and a tap opens the full detail. */}
+              <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-1">
+                {weapon.socketColumns.map((col, cIdx) => {
+                  // Enhanced twins are dropped here rather than in the data, so
+                  // an owned weapon's actual enhanced roll still reads correctly
+                  // in the section above.
+                  const perks = withoutDuplicateEnhancedPerks(col.perks || []);
+                  return (
+                  <div key={cIdx} className="flex-1 min-w-[52px] space-y-2">
+                    <div
+                      className="text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono text-center truncate border-b border-[#20293a] pb-1"
+                      title={`${col.type} (${perks.length})`}
+                    >
+                      {COLUMN_LABELS[col.type] || col.type}
                     </div>
 
-                    <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1">
-                      {(col.perks || []).map((p) => (
-                        <LongPressable
-                          key={p.hash || p.name}
-                          onClick={() => onOpenInfo?.({
-                            name: p.name,
-                            category: p.category || 'Perk',
-                            description: p.description,
-                            icon: p.icon,
-                            stats: p.stats,
-                            isEnhanced: p.isEnhanced,
-                            type: 'perk'
-                          })}
-                          onLongPress={() => onOpenInfo?.({
-                            name: p.name,
-                            category: p.category || 'Perk',
-                            description: p.description,
-                            icon: p.icon,
-                            stats: p.stats,
-                            isEnhanced: p.isEnhanced,
-                            type: 'perk'
-                          })}
-                          className="flex items-center gap-2 p-2 rounded-lg text-xs font-medium cursor-pointer transition-all w-full bg-slate-900/90 text-slate-300 hover:bg-slate-800 hover:text-white border border-slate-800"
-                        >
-                          {p.icon ? (
-                            <img src={p.icon} alt="" className="w-5 h-5 rounded object-cover flex-shrink-0" />
-                          ) : (
-                            <Sparkles className="w-4 h-4 text-amber-400 flex-shrink-0" />
-                          )}
-                          <span className="truncate flex-1 text-left">{p.name}</span>
-                          {p.isEnhanced && (
-                            <span className="text-[9px] px-1 rounded bg-amber-900/60 text-amber-300 font-mono">
-                              Enhanced
-                            </span>
-                          )}
-                        </LongPressable>
-                      ))}
+                    <div className="flex flex-col items-center gap-1.5">
+                      {perks.map((p) => {
+                        const info = {
+                          name: p.name,
+                          category: p.category || 'Perk',
+                          description: p.description,
+                          icon: p.icon,
+                          stats: p.stats,
+                          isEnhanced: p.isEnhanced,
+                          type: 'perk'
+                        };
+                        return (
+                          <LongPressable
+                            key={p.hash || p.name}
+                            title={p.isEnhanced ? `${p.name} (Enhanced)` : p.name}
+                            onClick={() => onOpenInfo?.(info)}
+                            onLongPress={() => onOpenInfo?.(info)}
+                            className={`relative justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-slate-900/90 border transition-all hover:scale-105 active:scale-95 ${
+                              p.isEnhanced
+                                ? 'border-amber-500/60 hover:border-amber-400'
+                                : 'border-slate-700 hover:border-amber-400'
+                            }`}
+                          >
+                            {/* alt carries the name, so the icon is not a dead
+                                end for anyone not using a pointer. */}
+                            <PerkIcon perk={p} className="w-7 h-7 sm:w-8 sm:h-8" />
+                            {p.isEnhanced && (
+                              <span
+                                className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-amber-400 ring-2 ring-[#121722]"
+                                aria-hidden="true"
+                              />
+                            )}
+                          </LongPressable>
+                        );
+                      })}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

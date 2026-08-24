@@ -25,9 +25,10 @@ import {
   Compass,
   Info
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery, withoutDuplicateEnhancedPerks } from '../utils/destiny-helpers';
 import { searchWeaponsClient, getSuggestionsClient, searchPerksClient } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
+import PerkIcon from './PerkIcon';
 
 export default function WeaponFinder({ 
   onSelectWeapon, 
@@ -909,57 +910,54 @@ export default function WeaponFinder({
                     </LongPressable>
                   )}
 
-                  {/* Perk Columns Preview (Long Pressable on each perk!) */}
-                  <div className="space-y-1">
-                    {w.socketColumns
-                      .filter(c => ['Perk Column 3', 'Perk Column 4'].includes(c.type))
-                      .map((col, idx) => (
-                        <div key={idx} className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
-                          <span className="text-[10px] text-slate-500 font-mono w-7 flex-shrink-0">
-                            {idx === 0 ? 'Col 3:' : 'Col 4:'}
-                          </span>
-                          <div className="flex items-center gap-1 flex-nowrap">
-                            {col.perks.slice(0, 6).map((p) => {
-                              const isTarget = selectedPerks.some(sp => sp.toLowerCase() === p.name.toLowerCase());
+                  {/* A card only shows the perks that answer the current perk
+                      filter -- the reason this weapon is in the list. The full
+                      roll belongs to the inspect view, where there is room for
+                      it. With no perk filter set there is nothing to justify,
+                      so the block does not render at all.
+
+                      Matches are looked for in every socket, not just the two
+                      trait columns, because a barrel or magazine can be what
+                      was filtered on. Columns are kept so a match still shows
+                      which socket it sits in. */}
+                  {matchingPerks.length > 0 && (
+                    <div className="flex gap-1.5 items-start">
+                      {w.socketColumns
+                        .map(col => ({
+                          type: col.type,
+                          perks: withoutDuplicateEnhancedPerks(col.perks || []).filter(p =>
+                            selectedPerks.some(sp => sp.toLowerCase() === p.name.toLowerCase())
+                          )
+                        }))
+                        .filter(col => col.perks.length > 0)
+                        .map((col, idx) => (
+                          <div key={idx} className="flex flex-col items-center gap-1">
+                            {col.perks.map((p) => {
+                              const info = {
+                                name: p.name,
+                                category: p.category || 'Perk',
+                                description: p.description,
+                                icon: p.icon,
+                                stats: p.stats,
+                                isEnhanced: p.isEnhanced,
+                                type: 'perk'
+                              };
                               return (
                                 <LongPressable
                                   key={p.hash}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    addPerk(p.name);
-                                  }}
-                                  onLongPress={(e) => {
-                                    e.stopPropagation();
-                                    onOpenInfo?.({
-                                      name: p.name,
-                                      category: p.category || 'Perk',
-                                      description: p.description,
-                                      icon: p.icon,
-                                      stats: p.stats,
-                                      isEnhanced: p.isEnhanced,
-                                      type: 'perk'
-                                    });
-                                  }}
-                                  className={`px-1.5 py-0.5 rounded text-[11px] font-mono whitespace-nowrap ${
-                                    isTarget
-                                      ? 'bg-amber-500 text-black font-bold ring-1 ring-amber-400 shadow-sm shadow-amber-500/50'
-                                      : 'bg-slate-800/80 text-slate-300 border border-slate-700/60 hover:border-amber-400'
-                                  }`}
-                                  title={`${p.name} (Hold for info)`}
+                                  onClick={(e) => { e.stopPropagation(); onOpenInfo?.(info); }}
+                                  onLongPress={(e) => { e.stopPropagation(); removePerk(p.name); }}
+                                  title={`${p.name}${p.isEnhanced ? ' (Enhanced)' : ''} — ${col.type} — hold to drop this filter`}
+                                  className="relative justify-center w-7 h-7 rounded-full border border-amber-400 ring-1 ring-amber-400 bg-amber-500/20 transition-all hover:scale-110 active:scale-95"
                                 >
-                                  {p.name}
+                                  <PerkIcon perk={p} className="w-5 h-5" />
                                 </LongPressable>
                               );
                             })}
-                            {col.perks.length > 6 && (
-                              <span className="text-[10px] text-slate-500 font-mono">
-                                +{col.perks.length - 6}
-                              </span>
-                            )}
                           </div>
-                        </div>
-                      ))}
-                  </div>
+                        ))}
+                    </div>
+                  )}
 
                 </div>
 
