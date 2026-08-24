@@ -19,14 +19,36 @@ import {
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { ITEM_STATE_MASTERWORK, STAT_META, normaliseStats } from '../utils/armor-stats';
-import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
+import { ensureApiKey, getStoredAuthSession, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
+import {
+  ARMOR_BUCKET_HASHES,
+  WEAPON_BUCKET_HASHES,
+  ARMOR_SLOT_KEYS,
+  WEAPON_SLOT_KEYS,
+  SLOT_LABELS,
+  equipSlotKey,
+  isSameSlot,
+  slotKeyFromBucketHash
+} from '../utils/destiny-buckets';
 import LongPressable from './LongPressable';
 import ArmourOptimizer from './ArmourOptimizer';
 
-/** Every vault item reports this bucket, not the slot it would occupy equipped. */
-const VAULT_BUCKET_HASH = 138197802;
+/** Card headings, which read a little differently from the bare slot names. */
+const WEAPON_SLOT_TITLES = {
+  kinetic: 'Kinetic Slot',
+  energy: 'Energy Slot',
+  power: 'Power / Heavy Slot'
+};
+
+const ARMOR_SLOT_TITLES = {
+  helmet: 'Helmet',
+  gauntlets: 'Gauntlets / Arms',
+  chest: 'Chest Armour',
+  legs: 'Leg Armour',
+  classItem: 'Class Item'
+};
 
 /**
  * The six armour stat hashes. Bungie renamed these stats without changing
@@ -49,6 +71,13 @@ const STAT_HASHES = [
  */
 const CONFIRMED_ACTION_HOLD_MS = 20000;
 
+/**
+ * How stale a profile has to be before returning to the app re-reads it. Gear
+ * moves in the game while this sits in the background, so coming back to a
+ * profile older than this is coming back to a lie.
+ */
+const STALE_PROFILE_MS = 30000;
+
 export default function GuardianManager({ 
   onSelectWeapon, 
   onSelectArmor,
@@ -68,6 +97,28 @@ export default function GuardianManager({
   const [vaultSearch, setVaultSearch] = useState('');
   const [vaultFilter, setVaultFilter] = useState('all'); // 'all' | 'weapons' | 'armor'
 
+  /**
+   * The profile as it stands right now, for the action handlers.
+   *
+   * A handler held by a child -- the optimizer runs a whole build's worth of
+   * actions through the same captured callbacks -- would otherwise keep reading
+   * the snapshot from the render it was created in, and act on gear that has
+   * already moved.
+   */
+  const profileDataRef = useRef(null);
+
+  /** Identifies the most recent write, so a rollback can tell it is still the top of the stack. */
+  const lastWriteRef = useRef(null);
+
+  const setProfile = (updater, token = {}) => setProfileData(prev => {
+    const next = typeof updater === 'function' ? updater(prev) : updater;
+    if (next !== prev) {
+      profileDataRef.current = next;
+      lastWriteRef.current = token;
+    }
+    return next;
+  });
+
   // Confirmed-action trackers. Bungie's profile endpoint can serve a cached
   // response for a few seconds after an action lands, so a *confirmed* change
   // is held over the next refetch to stop the UI flicking back. Entries are
@@ -76,6 +127,8 @@ export default function GuardianManager({
   const pendingEquipsRef = useRef(new Map());
   const pendingTransfersRef = useRef(new Map());
   const refreshTimerRef = useRef(null);
+  const statusTimerRef = useRef(null);
+  const lastFetchAtRef = useRef(0);
 
   /**
    * Re-read the profile shortly after an action, then once more a little later.
@@ -91,6 +144,7 @@ export default function GuardianManager({
 
   useEffect(() => () => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -99,25 +153,49 @@ export default function GuardianManager({
     }
   }, [authSession]);
 
+  // Coming back to the app after playing: re-read anything that has gone stale.
+  useEffect(() => {
+    if (!authSession?.authenticated) return undefined;
+
+    const refreshIfStale = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastFetchAtRef.current < STALE_PROFILE_MS) return;
+      fetchLiveProfile(false);
+    };
+
+    document.addEventListener('visibilitychange', refreshIfStale);
+    window.addEventListener('focus', refreshIfStale);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshIfStale);
+      window.removeEventListener('focus', refreshIfStale);
+    };
+  }, [authSession]);
+
   const fetchLiveProfile = async (showLoading = false) => {
     if (showLoading) setLoading(true);
+    lastFetchAtRef.current = Date.now();
+    // Item definitions are read straight from Bungie on either route, so the
+    // key has to be in place before anything is enriched.
+    await ensureApiKey();
     try {
-      // 1. First attempt local Express backend API (if available)
+      // 1. A local server, if one is running, fetches the profile with its own
+      //    credentials. It hands back Bungie's own payload, so both routes end
+      //    up in the same enrichment and the same reconciliation below.
       try {
         const res = await fetch(`/api/inventory/profile?_ts=${Date.now()}`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
-          if (data.characters && data.characters.length > 0) {
-            setProfileData(data);
+          if (data?.characters?.data) {
+            await parseAndEnrichDirectBungieProfile(data);
             if (showLoading) setLoading(false);
             return;
           }
         }
       } catch (e) {}
 
-      // 2. Direct Bungie.net API querying from browser with cache-busting
+      // 2. Otherwise ask Bungie directly, cache-busted.
       const token = await getValidAuthToken();
-      const settings = getStoredSettings();
+      const settings = await ensureApiKey();
       const session = getStoredAuthSession().session;
 
       if (!token || !session) {
@@ -274,8 +352,25 @@ export default function GuardianManager({
 
     function enrichItem(it) {
       const hash = it.itemHash;
-      const localDef = getClientItemByHash(hash) || (defs[hash]?.name ? getClientItemByName(defs[hash].name) : null);
-      const def = localDef || defs[hash] || {};
+      const liveDef = defs[hash] || null;
+
+      // The bundled manifest is richer than the live definition, so it is
+      // preferred -- but only when it is describing the same item. Matching by
+      // name is a last resort for hashes the bundle predates: names repeat
+      // across reissues and across slots, so a match is only trusted when both
+      // definitions agree on what kind of item it is.
+      let localDef = getClientItemByHash(hash);
+      if (!localDef && liveDef?.name) {
+        const byName = getClientItemByName(liveDef.name);
+        const sameKind = byName && (
+          !liveDef.itemTypeDisplayName ||
+          !byName.itemTypeDisplayName ||
+          byName.itemTypeDisplayName === liveDef.itemTypeDisplayName
+        );
+        if (sameKind) localDef = byName;
+      }
+
+      const def = localDef || liveDef || {};
       const inst = it.itemInstanceId ? instances[it.itemInstanceId] : null;
       const sock = it.itemInstanceId ? socketsMap[it.itemInstanceId] : null;
 
@@ -302,9 +397,8 @@ export default function GuardianManager({
       // vault item's own bucketHash is the vault, not its equipment slot.
       let detectedSlot = def.slot;
       if (!detectedSlot) {
-        if (it.bucketHash === 1498876634) detectedSlot = 'Kinetic';
-        else if (it.bucketHash === 2465295065) detectedSlot = 'Energy';
-        else if (it.bucketHash === 953998645) detectedSlot = 'Power';
+        const bucketSlot = slotKeyFromBucketHash(it.bucketHash);
+        if (WEAPON_SLOT_KEYS.includes(bucketSlot)) detectedSlot = SLOT_LABELS[bucketSlot];
       }
 
       // Artifice armour carries an extra +3 mod slot, which the optimizer needs
@@ -339,6 +433,9 @@ export default function GuardianManager({
         itemInstanceId: it.itemInstanceId,
         itemHash: it.itemHash,
         bucketHash: it.bucketHash,
+        // Where this item equips, regardless of where it is stored. The bundled
+        // manifest predates this field, so the live definition backs it up.
+        equipBucketHash: def.bucketTypeHash ?? liveDef?.bucketTypeHash ?? null,
         slot: detectedSlot,
         ammoType: def.ammoType,
         name: def.name || `Item #${hash}`,
@@ -351,8 +448,8 @@ export default function GuardianManager({
         itemTypeDisplayName: def.itemTypeDisplayName || (def.isWeapon ? 'Weapon' : def.isArmor ? 'Armour' : ''),
         weaponType: def.isWeapon ? (def.weaponType || def.itemTypeDisplayName) : null,
         armorSlot: def.isArmor ? (def.armorSlot || def.itemTypeDisplayName) : null,
-        isWeapon: def.isWeapon || def.weaponType != null || [1498876634, 2465295065, 953998645].includes(it.bucketHash),
-        isArmor: def.isArmor || def.armorSlot != null || [3448274439, 3551901077, 1423949262, 20886954, 1585787867].includes(it.bucketHash),
+        isWeapon: def.isWeapon || def.weaponType != null || WEAPON_BUCKET_HASHES.includes(it.bucketHash),
+        isArmor: def.isArmor || def.armorSlot != null || ARMOR_BUCKET_HASHES.includes(it.bucketHash),
         isArtifice,
         isMasterwork,
         classType,
@@ -415,65 +512,12 @@ export default function GuardianManager({
 
     const vault = (data.profileInventory?.data?.items || []).map(enrichItem);
 
-    setProfileData({
+    setProfile({
       profileInfo: data.profile?.data?.userInfo,
             characters,
       vault
     });
   }
-
-  /**
-   * Canonical equipment slot for an item.
-   *
-   * Everything sitting in the vault reports the vault's own bucket rather than
-   * the slot it would occupy once equipped, so the instance bucket is only
-   * trustworthy for items already on a character. The item definition carries
-   * the real equipment bucket, which is what `slot` / `armorSlot` are built
-   * from, so those come first.
-   */
-  const equipSlotKey = (it) => {
-    if (!it) return null;
-    const named = (it.armorSlot || it.slot || it.itemTypeDisplayName || '').toLowerCase();
-    if (named.includes('helmet')) return 'helmet';
-    if (named.includes('gauntlet') || named.includes('arms')) return 'gauntlets';
-    if (named.includes('chest')) return 'chest';
-    if (named.includes('leg') || named.includes('boots') || named.includes('greaves') || named.includes('strides')) return 'legs';
-    if (named.includes('class') || named.includes('mark') || named.includes('cloak') || named.includes('bond')) return 'classItem';
-    if (named.includes('kinetic')) return 'kinetic';
-    if (named.includes('energy')) return 'energy';
-    if (named.includes('power') || named.includes('heavy')) return 'power';
-
-    switch (it.bucketHash) {
-      case 3448274439: return 'helmet';
-      case 3551901077: return 'gauntlets';
-      case 1423949262: return 'chest';
-      case 20886954: return 'legs';
-      case 1585787867: return 'classItem';
-      case 1498876634: return 'kinetic';
-      case 2465295065: return 'energy';
-      case 953998645: return 'power';
-      default: return null;
-    }
-  };
-
-  /** Do two items compete for the same equipment slot? */
-  const isSameSlot = (a, b) => {
-    if (!a || !b) return false;
-    // Two items can only share a slot if they are the same kind of gear.
-    if (!!a.isWeapon !== !!b.isWeapon) return false;
-    if (!!a.isArmor !== !!b.isArmor) return false;
-
-    const slotA = equipSlotKey(a);
-    const slotB = equipSlotKey(b);
-    if (slotA && slotB) return slotA === slotB;
-
-    // Fall back to the instance bucket, but never for vault items -- they all
-    // share one bucket and would otherwise match each other indiscriminately.
-    if (a.bucketHash && b.bucketHash && a.bucketHash !== VAULT_BUCKET_HASH) {
-      return a.bucketHash === b.bucketHash;
-    }
-    return false;
-  };
 
   /**
    * Bungie answers every action with HTTP 200 and puts the real verdict in the
@@ -525,7 +569,7 @@ export default function GuardianManager({
     try {
       const token = await getValidAuthToken();
       if (!token) return { ok: false, message: 'Your Bungie.net session expired. Sign in again.' };
-      const settings = getStoredSettings();
+      const settings = await ensureApiKey();
 
       const res = await fetch(directUrl, {
         method: 'POST',
@@ -575,14 +619,22 @@ export default function GuardianManager({
    */
   const applyOptimistic = (fn) => {
     let previous = null;
-    setProfileData(prev => {
+    const token = {};
+    setProfile(prev => {
       if (!prev) return prev;
       const next = fn(prev);
       if (!next) return prev;
       previous = prev;
       return next;
-    });
-    return () => { if (previous) setProfileData(previous); };
+    }, token);
+
+    return () => {
+      // Rewinding to a whole snapshot is only safe while this is still the most
+      // recent change. Once another action or a refetch has landed, that state
+      // is newer than anything this rollback knows, so leave it alone -- the
+      // caller refetches immediately either way.
+      if (previous && lastWriteRef.current === token) setProfile(previous);
+    };
   };
 
   /** Does this character already wear a conflicting exotic of the same family? */
@@ -596,21 +648,46 @@ export default function GuardianManager({
     });
   };
 
-  const finishAction = (message) => {
-    setActionLoading(null);
+  /**
+   * The platform an action has to be addressed to. It comes from the profile
+   * we are looking at; the stored session is the fallback. Guessing a platform
+   * sends the action to an account that does not exist, so a missing one is an
+   * error rather than a default.
+   */
+  const getMembershipType = () => {
+    const fromProfile = profileDataRef.current?.profileInfo?.membershipType;
+    if (fromProfile) return fromProfile;
+    const session = getStoredAuthSession().session;
+    return session?.user?.destinyMemberships?.[0]?.membershipType || null;
+  };
+
+  /**
+   * Close out an action: clear its spinner and report what happened. `forId`
+   * keeps a finishing action from clearing the spinner of one still running.
+   */
+  const finishAction = (message, forId) => {
+    setActionLoading(prev => (forId === undefined || prev === forId ? null : prev));
     setStatusMessage(message);
-    setTimeout(() => setStatusMessage(null), 4000);
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = setTimeout(() => setStatusMessage(null), 4000);
   };
 
   /**
    * Move an item between the vault and a character.
    * Resolves to true only when Bungie confirmed the move.
    */
-  const handleTransferItem = async (item, transferToVault = false, options = {}) => {
+  const transferItemInternal = async (item, transferToVault = false, options = {}) => {
     const { chained = false } = options;
-    const character = profileData?.characters?.[selectedCharacterIndex];
+    const profile = profileDataRef.current;
+    const character = profile?.characters?.[selectedCharacterIndex];
     if (!character || !item?.itemInstanceId) return false;
     const characterId = character.characterId;
+
+    const membershipType = getMembershipType();
+    if (!membershipType) {
+      if (!chained) finishAction('Sign in again -- the app does not know which platform to act on.');
+      return false;
+    }
 
     // An equipped item cannot be moved to the vault; the game requires it to be
     // unequipped first, and pretending otherwise leaves a hole in the UI.
@@ -641,7 +718,7 @@ export default function GuardianManager({
     const result = await runInventoryAction({
       proxyPath: '/api/inventory/transfer',
       proxyBody: {
-        membershipType: profileData.profileInfo?.membershipType,
+        membershipType,
         characterId,
         itemReferenceHash: item.itemHash,
         itemInstanceId: item.itemInstanceId,
@@ -654,7 +731,7 @@ export default function GuardianManager({
         stackSize: 1,
         transferToVault,
         characterId,
-        membershipType: profileData.profileInfo?.membershipType || 3
+        membershipType
       }
     });
 
@@ -662,7 +739,7 @@ export default function GuardianManager({
       // Put the UI back where it was, then confirm against Bungie.
       pendingTransfersRef.current.delete(item.itemInstanceId);
       revert();
-      if (!chained) finishAction(result.message);
+      if (!chained) finishAction(result.message, item.itemInstanceId);
       fetchLiveProfile(false);
       return false;
     }
@@ -676,7 +753,10 @@ export default function GuardianManager({
     });
 
     if (!chained) {
-      finishAction(transferToVault ? `${item.name} moved to the vault.` : `${item.name} pulled to your ${character.classType}.`);
+      finishAction(
+        transferToVault ? `${item.name} moved to the vault.` : `${item.name} pulled to your ${character.classType}.`,
+        item.itemInstanceId
+      );
       scheduleProfileRefresh();
     }
     return true;
@@ -686,15 +766,22 @@ export default function GuardianManager({
    * Equip an item on the selected character.
    * Resolves to true only when Bungie confirmed the equip.
    */
-  const handleEquipItem = async (itemInstanceId) => {
-    const character = profileData?.characters?.[selectedCharacterIndex];
+  const equipItemInternal = async (itemInstanceId) => {
+    const profile = profileDataRef.current;
+    const character = profile?.characters?.[selectedCharacterIndex];
     if (!character || !itemInstanceId) return false;
     const characterId = character.characterId;
+
+    const membershipType = getMembershipType();
+    if (!membershipType) {
+      finishAction('Sign in again -- the app does not know which platform to act on.');
+      return false;
+    }
 
     if ((character.equipped || []).some(it => it.itemInstanceId === itemInstanceId)) return true;
 
     const inBag = (character.bag || []).find(it => it.itemInstanceId === itemInstanceId);
-    const inVault = (profileData.vault || []).find(it => it.itemInstanceId === itemInstanceId);
+    const inVault = (profile.vault || []).find(it => it.itemInstanceId === itemInstanceId);
     const item = inBag || inVault;
 
     if (!item) {
@@ -708,9 +795,9 @@ export default function GuardianManager({
     // Bungie cannot equip straight out of the vault -- the piece has to reach
     // the character's inventory first.
     if (inVault && !inBag) {
-      const moved = await handleTransferItem(item, false, { chained: true });
+      const moved = await transferItemInternal(item, false, { chained: true });
       if (!moved) {
-        finishAction(`Could not pull ${item.name} from the vault.`);
+        finishAction(`Could not pull ${item.name} from the vault.`, itemInstanceId);
         return false;
       }
     }
@@ -745,7 +832,7 @@ export default function GuardianManager({
     const result = await runInventoryAction({
       proxyPath: '/api/inventory/equip',
       proxyBody: {
-        membershipType: profileData.profileInfo?.membershipType,
+        membershipType,
         characterId,
         itemInstanceId
       },
@@ -753,29 +840,38 @@ export default function GuardianManager({
       directBody: {
         itemId: itemInstanceId,
         characterId,
-        membershipType: profileData.profileInfo?.membershipType || 3
+        membershipType
       }
     });
 
     if (!result.ok) {
       pendingEquipsRef.current.delete(itemInstanceId);
       revert();
-      finishAction(result.message);
+      finishAction(result.message, itemInstanceId);
       fetchLiveProfile(false);
       return false;
     }
 
     pendingEquipsRef.current.set(itemInstanceId, { characterId, timestamp: Date.now() });
-    finishAction(`${item.name} equipped.`);
+    finishAction(`${item.name} equipped.`, itemInstanceId);
     scheduleProfileRefresh();
     return true;
   };
 
-  const handleEquipLoadout = async (loadoutIndex) => {
-    const character = profileData?.characters?.[selectedCharacterIndex];
+  const equipLoadoutInternal = async (loadoutIndex) => {
+    const profile = profileDataRef.current;
+    const character = profile?.characters?.[selectedCharacterIndex];
     if (!character) return false;
     const characterId = character.characterId;
-    const loadout = character.loadouts?.[loadoutIndex];
+
+    const membershipType = getMembershipType();
+    if (!membershipType) {
+      finishAction('Sign in again -- the app does not know which platform to act on.');
+      return false;
+    }
+    // `loadouts` skips empty slots, so the in-game index the API needs is not a
+    // position in that list.
+    const loadout = character.loadouts?.find(ld => ld.index === loadoutIndex);
 
     setActionLoading(`loadout_${loadoutIndex}`);
     setStatusMessage(`Equipping ${loadout?.name || `loadout ${loadoutIndex + 1}`}...`);
@@ -800,7 +896,7 @@ export default function GuardianManager({
     const result = await runInventoryAction({
       proxyPath: '/api/inventory/equip-loadout',
       proxyBody: {
-        membershipType: profileData.profileInfo?.membershipType,
+        membershipType,
         characterId,
         loadoutIndex
       },
@@ -808,14 +904,14 @@ export default function GuardianManager({
       directBody: {
         loadoutIndex,
         characterId,
-        membershipType: profileData.profileInfo?.membershipType || 3
+        membershipType
       }
     });
 
     if (!result.ok) {
       (loadout?.items || []).forEach(it => pendingEquipsRef.current.delete(it.itemInstanceId));
       revert();
-      finishAction(result.message);
+      finishAction(result.message, `loadout_${loadoutIndex}`);
       fetchLiveProfile(false);
       return false;
     }
@@ -823,10 +919,42 @@ export default function GuardianManager({
     (loadout?.items || []).forEach(it => {
       if (it.itemInstanceId) pendingEquipsRef.current.set(it.itemInstanceId, { characterId, timestamp: Date.now() });
     });
-    finishAction(`${loadout?.name || `Loadout ${loadoutIndex + 1}`} equipped.`);
+    finishAction(`${loadout?.name || `Loadout ${loadoutIndex + 1}`} equipped.`, `loadout_${loadoutIndex}`);
     scheduleProfileRefresh();
     return true;
   };
+
+  /**
+   * Inventory actions run one at a time.
+   *
+   * Each action reads the profile, applies an optimistic change and can roll
+   * that change back if Bungie rejects it. Two overlapping actions would each
+   * roll back over the other's work, so the UI could show a state neither
+   * request produced. Disabling the button only covered the item being acted
+   * on, which left every other tile live.
+   */
+  const actionInFlightRef = useRef(false);
+
+  const runExclusive = async (fn) => {
+    if (actionInFlightRef.current) return false;
+    actionInFlightRef.current = true;
+    try {
+      return await fn();
+    } finally {
+      actionInFlightRef.current = false;
+    }
+  };
+
+  const handleTransferItem = (item, transferToVault = false, options = {}) =>
+    // A chained pull is already inside an exclusive action.
+    options.chained
+      ? transferItemInternal(item, transferToVault, options)
+      : runExclusive(() => transferItemInternal(item, transferToVault, options));
+
+  const handleEquipItem = (itemInstanceId) => runExclusive(() => equipItemInternal(itemInstanceId));
+
+  const handleEquipLoadout = (loadoutIndex) => runExclusive(() => equipLoadoutInternal(loadoutIndex));
+
 
   if (!authSession?.authenticated) {
     return (
@@ -871,61 +999,50 @@ export default function GuardianManager({
   const inventoryItems = activeChar?.bag || [];
   const loadoutsList = activeChar?.loadouts || [];
 
-  // Group weapons by slot
-  const kineticEquipped = equippedWeapons.find(w => w.bucketHash === 1498876634 || w.slot === 'Kinetic') || equippedWeapons[0];
-  const energyEquipped = equippedWeapons.find(w => w.bucketHash === 2465295065 || w.slot === 'Energy') || equippedWeapons[1];
-  const powerEquipped = equippedWeapons.find(w => w.bucketHash === 953998645 || w.slot === 'Power') || equippedWeapons[2];
+  /**
+   * One card per equipment slot. The slot comes from the item's own bucket,
+   * which is what the game equips against, so a piece can only appear under the
+   * card it would actually replace -- and each equipped piece lands in exactly
+   * one card instead of being guessed at by position.
+   */
+  const slotCardKey = (it) => {
+    if (!it) return null;
+    const key = equipSlotKey(it);
+    if (!key) return null;
+    // The slot decides the card; the weapon/armour flags only veto a
+    // contradiction, so a pipeline that omits them still fills the screen.
+    if (ARMOR_SLOT_KEYS.includes(key)) return it.isWeapon ? null : key;
+    if (WEAPON_SLOT_KEYS.includes(key)) return it.isArmor ? null : key;
+    return null;
+  };
 
-  const kineticBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 1498876634 || w.slot === 'Kinetic'));
-  const energyBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 2465295065 || w.slot === 'Energy'));
-  const powerBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 953998645 || w.slot === 'Power'));
+  const equippedBySlot = {};
+  (activeChar?.equipped || []).forEach(it => {
+    const key = slotCardKey(it);
+    if (key && !equippedBySlot[key]) equippedBySlot[key] = it;
+  });
 
-  const weaponSlots = [
-    { title: 'Kinetic Slot', equipped: kineticEquipped, bag: kineticBag },
-    { title: 'Energy Slot', equipped: energyEquipped, bag: energyBag },
-    { title: 'Power / Heavy Slot', equipped: powerEquipped, bag: powerBag }
-  ];
+  const bagBySlot = {};
+  inventoryItems.forEach(it => {
+    const key = slotCardKey(it);
+    if (!key) return;
+    if (!bagBySlot[key]) bagBySlot[key] = [];
+    bagBySlot[key].push(it);
+  });
 
-  // Group armor by 5 slots
-  const bagArmor = inventoryItems.filter(it => it.isArmor);
+  const weaponSlots = WEAPON_SLOT_KEYS.map(key => ({
+    key,
+    title: WEAPON_SLOT_TITLES[key],
+    equipped: equippedBySlot[key],
+    bag: bagBySlot[key] || []
+  }));
 
-  const armorSlots = [
-    {
-      key: 'helmet',
-      title: 'Helmet',
-      bucketHash: 3448274439,
-      equipped: equippedArmor.find(it => it.bucketHash === 3448274439 || it.armorSlot?.toLowerCase().includes('helmet') || it.slot?.toLowerCase().includes('helmet') || it.itemTypeDisplayName?.toLowerCase().includes('helmet')),
-      bag: bagArmor.filter(it => it.bucketHash === 3448274439 || it.armorSlot?.toLowerCase().includes('helmet') || it.slot?.toLowerCase().includes('helmet') || it.itemTypeDisplayName?.toLowerCase().includes('helmet'))
-    },
-    {
-      key: 'gauntlets',
-      title: 'Gauntlets / Arms',
-      bucketHash: 3551901077,
-      equipped: equippedArmor.find(it => it.bucketHash === 3551901077 || it.armorSlot?.toLowerCase().includes('gauntlet') || it.slot?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('arms')),
-      bag: bagArmor.filter(it => it.bucketHash === 3551901077 || it.armorSlot?.toLowerCase().includes('gauntlet') || it.slot?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('arms'))
-    },
-    {
-      key: 'chest',
-      title: 'Chest Armour',
-      bucketHash: 1423949262,
-      equipped: equippedArmor.find(it => it.bucketHash === 1423949262 || it.armorSlot?.toLowerCase().includes('chest') || it.slot?.toLowerCase().includes('chest') || it.itemTypeDisplayName?.toLowerCase().includes('chest')),
-      bag: bagArmor.filter(it => it.bucketHash === 1423949262 || it.armorSlot?.toLowerCase().includes('chest') || it.slot?.toLowerCase().includes('chest') || it.itemTypeDisplayName?.toLowerCase().includes('chest'))
-    },
-    {
-      key: 'legs',
-      title: 'Leg Armour',
-      bucketHash: 20886954,
-      equipped: equippedArmor.find(it => it.bucketHash === 20886954 || it.armorSlot?.toLowerCase().includes('leg') || it.slot?.toLowerCase().includes('leg') || it.itemTypeDisplayName?.toLowerCase().includes('leg')),
-      bag: bagArmor.filter(it => it.bucketHash === 20886954 || it.armorSlot?.toLowerCase().includes('leg') || it.slot?.toLowerCase().includes('leg') || it.itemTypeDisplayName?.toLowerCase().includes('leg'))
-    },
-    {
-      key: 'classItem',
-      title: 'Class Item',
-      bucketHash: 1585787867,
-      equipped: equippedArmor.find(it => it.bucketHash === 1585787867 || it.armorSlot?.toLowerCase().includes('class') || it.slot?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('mark') || it.itemTypeDisplayName?.toLowerCase().includes('cloak') || it.itemTypeDisplayName?.toLowerCase().includes('bond')),
-      bag: bagArmor.filter(it => it.bucketHash === 1585787867 || it.armorSlot?.toLowerCase().includes('class') || it.slot?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('mark') || it.itemTypeDisplayName?.toLowerCase().includes('cloak') || it.itemTypeDisplayName?.toLowerCase().includes('bond'))
-    }
-  ];
+  const armorSlots = ARMOR_SLOT_KEYS.map(key => ({
+    key,
+    title: ARMOR_SLOT_TITLES[key],
+    equipped: equippedBySlot[key],
+    bag: bagBySlot[key] || []
+  }));
 
   const filteredVaultItems = (profileData?.vault || []).filter(item => {
     if (vaultFilter === 'weapons' && !item.isWeapon) return false;
@@ -1194,13 +1311,21 @@ export default function GuardianManager({
                           {slotGroup.bag.map((bagItem) => {
                             const bTier = getTierInfo(bagItem.tierTypeName);
                             const isSwapping = actionLoading === bagItem.itemInstanceId;
+                            // Actions run one at a time, so tiles that are not
+                            // the one in flight read as unavailable rather than
+                            // silently doing nothing when tapped.
+                            const blocked = !!actionLoading && !isSwapping;
 
                             return (
                               <LongPressable
                                 key={bagItem.itemInstanceId}
-                                onClick={() => handleEquipItem(bagItem.itemInstanceId)}
+                                onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
                                 onLongPress={() => onSelectWeapon?.(bagItem.baseItem || bagItem)}
-                                className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} hover:border-amber-400 p-0.5 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center overflow-hidden`}
+                                className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
+                                  blocked
+                                    ? 'opacity-40 cursor-not-allowed'
+                                    : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
+                                }`}
                                 title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
                               >
                                 {bagItem.icon ? (
@@ -1231,16 +1356,13 @@ export default function GuardianManager({
 
                   </div>
 
-                  {/* Transfer to Vault Footer */}
+                  {/* The game cannot store an equipped item, so this card offers
+                      no vault action -- only the reason there isn't one. */}
                   <div className="p-2 bg-[#0e131d] border-t border-[#1e2638]">
-                    <button
-                      disabled={actionLoading === item.itemInstanceId}
-                      onClick={() => handleTransferItem(item, true)}
-                      className="w-full py-1.5 rounded-lg bg-[#121722] hover:bg-slate-800 text-slate-300 text-xs font-mono border border-[#1e2638] flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
-                    >
-                      <Box className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Transfer to Vault</span>
-                    </button>
+                    <p className="text-[11px] text-slate-500 font-mono flex items-center justify-center gap-1.5 text-center">
+                      <Box className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                      <span>Equip something else here to vault this</span>
+                    </p>
                   </div>
 
                 </div>
@@ -1407,13 +1529,18 @@ export default function GuardianManager({
                             {slotGroup.bag.map((bagItem) => {
                               const bTier = getTierInfo(bagItem.tierTypeName);
                               const isSwapping = actionLoading === bagItem.itemInstanceId;
+                              const blocked = !!actionLoading && !isSwapping;
 
                               return (
                                 <LongPressable
                                   key={bagItem.itemInstanceId}
-                                  onClick={() => handleEquipItem(bagItem.itemInstanceId)}
+                                  onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
                                   onLongPress={() => onSelectArmor?.(bagItem.baseItem || bagItem)}
-                                  className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} hover:border-amber-400 p-0.5 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center overflow-hidden`}
+                                  className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
+                                    blocked
+                                      ? 'opacity-40 cursor-not-allowed'
+                                      : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
+                                  }`}
                                   title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
                                 >
                                   {bagItem.icon ? (
@@ -1444,16 +1571,13 @@ export default function GuardianManager({
 
                     </div>
 
-                    {/* Transfer to Vault Footer */}
+                    {/* The game cannot store an equipped item, so this card offers
+                        no vault action -- only the reason there isn't one. */}
                     <div className="p-2 bg-[#0e131d] border-t border-[#1e2638]">
-                      <button
-                        disabled={actionLoading === item.itemInstanceId}
-                        onClick={() => handleTransferItem(item, true)}
-                        className="w-full py-1.5 rounded-lg bg-[#121722] hover:bg-slate-800 text-slate-300 text-xs font-mono border border-[#1e2638] flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
-                      >
-                        <Box className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Transfer to Vault</span>
-                      </button>
+                      <p className="text-[11px] text-slate-500 font-mono flex items-center justify-center gap-1.5 text-center">
+                        <Box className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                        <span>Equip something else here to vault this</span>
+                      </p>
                     </div>
 
                   </div>
@@ -1468,7 +1592,6 @@ export default function GuardianManager({
               activeChar={activeChar}
               vault={profileData?.vault || []}
               onEquipItem={handleEquipItem}
-              onTransferItem={handleTransferItem}
               onOpenInfo={onOpenInfo}
               onSelectArmor={onSelectArmor}
             />
@@ -1547,7 +1670,7 @@ export default function GuardianManager({
                   {/* Actions: Equip or Vault */}
                   <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
                     <button
-                      disabled={actionLoading === item.itemInstanceId}
+                      disabled={!!actionLoading}
                       onClick={() => handleEquipItem(item.itemInstanceId)}
                       className="flex-1 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold font-mono transition-colors disabled:opacity-50"
                     >
@@ -1555,7 +1678,7 @@ export default function GuardianManager({
                     </button>
 
                     <button
-                      disabled={actionLoading === item.itemInstanceId}
+                      disabled={!!actionLoading}
                       onClick={() => handleTransferItem(item, true)}
                       className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center gap-1 disabled:opacity-50"
                     >
@@ -1625,7 +1748,7 @@ export default function GuardianManager({
                 </div>
 
                 <button
-                  disabled={actionLoading === `loadout_${ld.index}`}
+                  disabled={!!actionLoading}
                   onClick={() => handleEquipLoadout(ld.index)}
                   className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs font-mono flex items-center justify-center gap-2 transition-colors disabled:opacity-50 shadow-md"
                 >
@@ -1679,7 +1802,7 @@ export default function GuardianManager({
 
           {/* Vault Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredVault.slice(0, 80).map((item) => {
+            {filteredVaultItems.slice(0, 80).map((item) => {
               const tierInfo = getTierInfo(item.tierTypeName);
               const damageInfo = getDamageInfo(item.damageType);
 
@@ -1741,7 +1864,7 @@ export default function GuardianManager({
                   {/* Action: Transfer to Active Character */}
                   <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
                     <button
-                      disabled={actionLoading === item.itemInstanceId}
+                      disabled={!!actionLoading}
                       onClick={() => handleTransferItem(item, false)}
                       className="w-full py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold font-mono flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
                     >

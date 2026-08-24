@@ -155,6 +155,14 @@ async function getMembershipsForCurrentUser(accessToken = null) {
   return res.data?.Response;
 }
 
+/**
+ * The profile exactly as Bungie sends it.
+ *
+ * Reshaping it here used to mean two different pipelines producing two
+ * different profiles -- the proxied one silently dropped any item missing from
+ * this server's manifest snapshot and carried no armour stats. The client has
+ * one enrichment path; this route only lends it the credentials.
+ */
 async function getProfileData(membershipType, destinyMembershipId) {
   const token = await getValidAccessToken();
   if (!token) throw new Error('Not authenticated with Bungie.net');
@@ -173,112 +181,7 @@ async function getProfileData(membershipType, destinyMembershipId) {
     }
   });
 
-  const rawData = res.data?.Response;
-  return formatProfileResponse(rawData);
-}
-
-function formatProfileResponse(data) {
-  if (!data) return null;
-
-  const charactersMap = data.characters?.data || {};
-  const characterEquipmentMap = data.characterEquipment?.data || {};
-  const characterInventoriesMap = data.characterInventories?.data || {};
-  const characterLoadoutsMap = data.characterLoadouts?.data || {};
-  const itemInstancesMap = data.itemComponents?.instances?.data || {};
-  const itemSocketsMap = data.itemComponents?.sockets?.data || {};
-  const vaultItemsRaw = data.profileInventory?.data?.items || [];
-
-  const characters = Object.values(charactersMap).map(char => {
-    const charId = char.characterId;
-    const classType = char.classType === 0 ? 'Titan' : char.classType === 1 ? 'Hunter' : 'Warlock';
-    const equippedRaw = characterEquipmentMap[charId]?.items || [];
-    const bagRaw = characterInventoriesMap[charId]?.items || [];
-    const loadoutsRaw = characterLoadoutsMap[charId]?.loadouts || [];
-
-    const equipped = equippedRaw.map(it => enrichInventoryItem(it, itemInstancesMap, itemSocketsMap)).filter(Boolean);
-    const bag = bagRaw.map(it => enrichInventoryItem(it, itemInstancesMap, itemSocketsMap)).filter(Boolean);
-    const loadouts = loadoutsRaw.map((ld, idx) => ({
-      index: idx,
-      name: ld.nameId || `Loadout ${idx + 1}`,
-      colorHash: ld.colorHash,
-      iconHash: ld.iconHash,
-      items: ld.items?.map(it => ({
-        itemInstanceId: it.itemInstanceId,
-        plugItemHashes: it.plugItemHashes
-      }))
-    }));
-
-    return {
-      characterId: charId,
-      classType,
-      light: char.light,
-      emblemPath: char.emblemPath ? 'https://www.bungie.net' + char.emblemPath : null,
-      emblemBackgroundPath: char.emblemBackgroundPath ? 'https://www.bungie.net' + char.emblemBackgroundPath : null,
-      emblemColor: char.emblemColor,
-      stats: char.stats,
-      equipped,
-      bag,
-      loadouts
-    };
-  });
-
-  const vault = vaultItemsRaw.map(it => enrichInventoryItem(it, itemInstancesMap, itemSocketsMap)).filter(Boolean);
-
-  return {
-    profileInfo: data.profile?.data?.userInfo,
-    characters,
-    vault
-  };
-}
-
-function enrichInventoryItem(item, instances, sockets) {
-  if (!item || !item.itemHash) return null;
-
-  const instance = item.itemInstanceId ? instances[item.itemInstanceId] : null;
-  const socketData = item.itemInstanceId ? sockets[item.itemInstanceId] : null;
-
-  const manifestWeapon = manifestService.getWeaponById(item.itemHash);
-  const manifestArmor = manifestService.getArmorById(item.itemHash);
-  const baseItem = manifestWeapon || manifestArmor;
-
-  if (!baseItem) return null;
-
-  const isWeapon = !!manifestWeapon;
-  const perks = [];
-
-  if (socketData?.sockets) {
-    socketData.sockets.forEach(s => {
-      if (s.plugHash) {
-        const perk = manifestService.getPerkByHash(s.plugHash);
-        if (perk && !perk.name.startsWith('Default') && !perk.name.startsWith('Empty') && !perk.name.includes('Shader') && !perk.name.includes('Ornament')) {
-          perks.push(perk.name);
-        }
-      }
-    });
-  }
-
-  return {
-    itemInstanceId: item.itemInstanceId,
-    itemHash: item.itemHash,
-    name: baseItem.name,
-    icon: baseItem.icon,
-    tierTypeName: baseItem.tierTypeName,
-    weaponType: baseItem.weaponType || null,
-    armorSlot: baseItem.armorSlot || null,
-    damageType: baseItem.damageType || null,
-    damageColor: baseItem.damageColor || '#e2e8f0',
-    slot: baseItem.slot || null,
-    power: instance?.primaryStat?.value || instance?.itemLevel || null,
-    isEquipped: instance?.isEquipped || false,
-    canEquip: instance?.canEquip || true,
-    location: item.location,
-    bucketHash: item.bucketHash,
-    perks,
-    sourceString: baseItem.sourceString || null,
-    sourceCategory: baseItem.sourceCategory || null,
-    isCraftable: baseItem.isCraftable || false,
-    baseItem
-  };
+  return res.data?.Response;
 }
 
 // Actions: Equip Item

@@ -13,7 +13,7 @@ export async function getItemDefinition(itemHash) {
 
   // Try sessionStorage
   try {
-    const cached = sessionStorage.getItem(`d2_def_${hashKey}`);
+    const cached = sessionStorage.getItem(`d2_def2_${hashKey}`);
     if (cached) {
       const parsed = JSON.parse(cached);
       memoryCache.set(hashKey, parsed);
@@ -37,6 +37,7 @@ export async function getItemDefinition(itemHash) {
       
       const damageTypeMap = { 0: 'None', 1: 'Kinetic', 2: 'Arc', 3: 'Solar', 4: 'Void', 6: 'Stasis', 7: 'Strand' };
       const tierMap = { 0: 'Unknown', 2: 'Basic', 3: 'Common', 4: 'Rare', 5: 'Legendary', 6: 'Exotic' };
+      const classTypeMap = { 0: 'Titan', 1: 'Hunter', 2: 'Warlock', 3: 'Any' };
 
       const def = {
         hash: hashKey,
@@ -46,6 +47,12 @@ export async function getItemDefinition(itemHash) {
         iconWatermark: data.Response.iconWatermark ? `https://www.bungie.net${data.Response.iconWatermark}` : null,
         screenshot: data.Response.screenshot ? `https://www.bungie.net${data.Response.screenshot}` : null,
         itemTypeDisplayName: data.Response.itemTypeDisplayName || '',
+        // The slot this item equips into. A vault item reports the vault as its
+        // own bucket, so this is the only exact answer for anything stored.
+        bucketTypeHash: inv.bucketTypeHash ?? null,
+        // Which Guardian can wear it -- the optimizer would otherwise build
+        // sets out of another class's armour and fail to equip them.
+        classType: classTypeMap[data.Response.classType] ?? null,
         tierTypeName: data.Response.inventory?.tierTypeName || tierMap[inv.tierType] || 'Legendary',
         damageType: damageTypeMap[damageTypeEnum] || 'Kinetic',
         isWeapon: data.Response.itemType === 3,
@@ -54,7 +61,7 @@ export async function getItemDefinition(itemHash) {
 
       memoryCache.set(hashKey, def);
       try {
-        sessionStorage.setItem(`d2_def_${hashKey}`, JSON.stringify(def));
+        sessionStorage.setItem(`d2_def2_${hashKey}`, JSON.stringify(def));
       } catch (e) {}
 
       return def;

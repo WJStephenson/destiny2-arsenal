@@ -106,6 +106,36 @@ export async function fetchBungieCurrentUser(token, apiKey = '') {
   return null;
 }
 
+let apiKeyHydration = null;
+
+/**
+ * Make sure the browser has an API key before it talks to Bungie directly.
+ *
+ * A self-hosted setup configures its keys on the server, so the browser can be
+ * running without one; without a key every direct call to Bungie fails. The
+ * server is asked once, and only for the key -- nothing else is copied here.
+ */
+export async function ensureApiKey() {
+  const current = getStoredSettings();
+  if (current.apiKey) return current;
+
+  if (!apiKeyHydration) {
+    apiKeyHydration = (async () => {
+      try {
+        const res = await fetch('/api/settings');
+        if (!res.ok) return current;
+        const data = await res.json();
+        if (data?.apiKey) return saveStoredSettings({ apiKey: data.apiKey });
+      } catch (e) {
+        // No local server (or it served the app shell): nothing to hydrate.
+      }
+      return current;
+    })();
+  }
+
+  return apiKeyHydration;
+}
+
 export async function getValidAuthToken() {
   const { session } = getStoredAuthSession();
   if (!session || !session.accessToken) return null;
