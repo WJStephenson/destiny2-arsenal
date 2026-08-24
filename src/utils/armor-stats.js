@@ -186,7 +186,7 @@ function buildCoverTable(maxMajor) {
  * stat (they set the achievable minimum), the best all-rounders, and anything
  * currently equipped.
  */
-export function shortlistSlot(pieces, cap = 12, prioritise = null) {
+export function shortlistSlot(pieces, cap = 12, priorityGroups = null) {
   if (pieces.length <= cap) return pieces.slice();
 
   const keep = new Set();
@@ -207,13 +207,15 @@ export function shortlistSlot(pieces, cap = 12, prioritise = null) {
     [...list].sort((a, b) => (b.stats.total || 0) - (a.stats.total || 0)).forEach(bounded);
   };
 
-  if (prioritise) {
+  const groups = (priorityGroups || []).filter(Boolean);
+  if (groups.length > 0) {
     // A required set is useless if the shortlist happens to keep none of its
-    // pieces, so they get their own share of the budget before anything else.
-    const favoured = pieces.filter(prioritise);
-    const rest = pieces.filter(p => !prioritise(p));
-    spread(favoured, Math.max(1, Math.ceil(cap / 2)));
-    spread(rest, cap);
+    // pieces, so each one gets its own share of the budget before the general
+    // pool competes for the rest. Sharing a single pot between two required
+    // sets would let the better-stocked set crowd the other one out.
+    const share = Math.max(1, Math.floor(cap / (groups.length + 1)));
+    groups.forEach(inGroup => spread(pieces.filter(inGroup), share));
+    spread(pieces.filter(p => !groups.some(inGroup => inGroup(p))), cap);
   } else {
     spread(pieces, cap);
   }
@@ -308,15 +310,21 @@ export function buildComboIndex(pools, {
   exoticHash = 'any',
   lockedPieces = [],
   excludedPieces = [],
-  // { key, count } -- every build must wear at least `count` pieces of this
-  // set, which is how a 2-piece or 4-piece set bonus is actually earned.
-  requiredSet = null
+  // [{ key, count }] -- every build must wear at least `count` pieces of each
+  // listed set, which is how set bonuses are actually earned. Two 2-piece
+  // bonuses fit alongside each other in five slots; a 4-piece leaves room for
+  // nothing else.
+  requiredSets = []
 } = {}) {
   const wantsExotic = exoticHash !== 'any' && exoticHash !== 'none';
   const matchesLocked = (p) => String(p.itemHash ?? p.id) === String(exoticHash);
   const locked = new Set(lockedPieces);
   const excluded = new Set(excludedPieces);
-  const needsSet = !!(requiredSet && requiredSet.key && requiredSet.count > 0);
+  const setRequirements = (Array.isArray(requiredSets) ? requiredSets : [requiredSets])
+    .filter(r => r && r.key && r.count > 0);
+  const needsSet = setRequirements.length > 0;
+  // Reused across combinations to keep the assembly loop allocation-free.
+  const setTally = new Array(setRequirements.length).fill(0);
 
   const effectivePools = ARMOR_SLOTS.map(slot => {
     let pool = pools[slot] || [];
@@ -339,7 +347,7 @@ export function buildComboIndex(pools, {
   const shortlists = effectivePools.map((pool, i) => shortlistSlot(
     pool,
     slotCaps[ARMOR_SLOTS[i]] ?? 12,
-    needsSet ? (p) => setKey(p) === requiredSet.key : null
+    setRequirements.map(req => (p) => setKey(p) === req.key)
   ));
 
   // Report how much of each pool was actually searched. The shortlists always
@@ -373,7 +381,7 @@ export function buildComboIndex(pools, {
     let artificeCount = 0;
     let mwCount = 0;
     let hasLockedExotic = false;
-    let setPieces = 0;
+    for (let r = 0; r < setTally.length; r++) setTally[r] = 0;
     const base = written * STAT_COUNT;
 
     for (let s = 0; s < ARMOR_SLOT_COUNT; s++) {
@@ -381,7 +389,12 @@ export function buildComboIndex(pools, {
       picks[written * ARMOR_SLOT_COUNT + s] = cursor[s];
       if (piece.tierTypeName === 'Exotic') exotics++;
       if (wantsExotic && String(piece.itemHash ?? piece.id) === String(exoticHash)) hasLockedExotic = true;
-      if (needsSet && setKey(piece) === requiredSet.key) setPieces++;
+      if (needsSet) {
+        const key = setKey(piece);
+        for (let r = 0; r < setRequirements.length; r++) {
+          if (setRequirements[r].key === key) { setTally[r]++; break; }
+        }
+      }
       if (piece.isArtifice) artificeCount++;
       if (piece.isMasterwork) mwCount++;
       for (let k = 0; k < STAT_COUNT; k++) {
@@ -397,7 +410,10 @@ export function buildComboIndex(pools, {
 
     // A set bonus needs its pieces worn together, so this is a constraint on
     // the whole combination -- it cannot be applied by filtering the pools.
-    const setOk = !needsSet || setPieces >= requiredSet.count;
+    let setOk = true;
+    for (let r = 0; r < setRequirements.length && setOk; r++) {
+      if (setTally[r] < setRequirements[r].count) setOk = false;
+    }
 
     if (exoticOk && setOk) {
       artifice[written] = artificeCount;
