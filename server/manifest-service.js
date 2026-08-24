@@ -470,7 +470,12 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
     const icon = raw.displayProperties?.icon ? 'https://www.bungie.net' + raw.displayProperties.icon : null;
     const description = raw.displayProperties?.description || '';
     const itemTypeDisplayName = raw.itemTypeDisplayName || '';
-    const isEnhanced = name.startsWith('Enhanced ') || itemTypeDisplayName.includes('Enhanced');
+    // The manifest marks the enhanced half of a pair by its item type
+    // ("Enhanced Trait", "Enhanced Battery"), never by its name: "Enhanced
+    // Battery" and "Enhanced Heatsink" are the names of ordinary base perks,
+    // so reading the name would flag both halves of those pairs as enhanced
+    // and leave the duplicate visible in every column that rolls them.
+    const isEnhanced = itemTypeDisplayName.includes('Enhanced');
     const isOriginTrait = perkCategory === 'Origin Trait' || itemTypeDisplayName.includes('Origin');
     const isIntrinsic = perkCategory === 'Intrinsic' || itemTypeDisplayName.includes('Intrinsic') || itemTypeDisplayName.includes('Frame');
 
