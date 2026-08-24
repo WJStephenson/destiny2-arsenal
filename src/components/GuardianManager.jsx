@@ -18,7 +18,7 @@ import {
   Info 
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
-import { ITEM_STATE_MASTERWORK } from '../utils/armor-stats';
+import { ITEM_STATE_MASTERWORK, STAT_META, normaliseStats } from '../utils/armor-stats';
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
@@ -27,6 +27,20 @@ import ArmourOptimizer from './ArmourOptimizer';
 
 /** Every vault item reports this bucket, not the slot it would occupy equipped. */
 const VAULT_BUCKET_HASH = 138197802;
+
+/**
+ * The six armour stat hashes. Bungie renamed these stats without changing
+ * their hashes, so the same identifiers now mean Weapons, Health, Class,
+ * Grenade, Super and Melee.
+ */
+const STAT_HASHES = [
+  { hash: 2996146669, name: 'Weapons' },
+  { hash: 392767087, name: 'Health' },
+  { hash: 1943344089, name: 'Class' },
+  { hash: 1735426796, name: 'Grenade' },
+  { hash: 144602215, name: 'Super' },
+  { hash: 4244567218, name: 'Melee' }
+];
 
 /**
  * How long a confirmed action outranks the profile Bungie sends back. Their
@@ -306,63 +320,19 @@ export default function GuardianManager({
       // it null rather than filtering the piece out of every Guardian's pool.
       const classType = def.classType && def.classType !== 'Any' ? def.classType : null;
 
-      // New Armor Stats extraction (Destiny 2 Frontiers System):
-      // Weapons (formerly Mobility), Health (formerly Resilience), Class (formerly Recovery),
-      // Grenade (formerly Discipline), Super (formerly Intellect), Melee (formerly Strength)
-      const rawStats = it.itemInstanceId && statsMap[it.itemInstanceId]?.stats ? statsMap[it.itemInstanceId].stats : null;
+      // Armour stats. Bungie kept the original stat hashes through the rename,
+      // so these are still the six armour stats -- now Weapons, Health, Class,
+      // Grenade, Super and Melee. Live instance stats win; the definition's
+      // stat list is the fallback for anything without an instance.
+      const rawStats = it.itemInstanceId ? statsMap[it.itemInstanceId]?.stats : null;
       let armorStats = null;
       if (rawStats) {
-        const weap = rawStats[2996146669]?.value || 0;
-        const hlth = rawStats[392767087]?.value || 0;
-        const clas = rawStats[1943344089]?.value || 0;
-        const gren = rawStats[1735426796]?.value || 0;
-        const supr = rawStats[144602215]?.value || 0;
-        const mele = rawStats[4244567218]?.value || 0;
-        const total = weap + hlth + clas + gren + supr + mele;
-        armorStats = {
-          weapons: weap,
-          health: hlth,
-          classAbility: clas,
-          grenade: gren,
-          superAbility: supr,
-          melee: mele,
-          mobility: weap,
-          resilience: hlth,
-          recovery: clas,
-          discipline: gren,
-          intellect: supr,
-          strength: mele,
-          total
-        };
-      } else if (def.statsList && def.statsList.length > 0) {
-        let weap = 0, hlth = 0, clas = 0, gren = 0, supr = 0, mele = 0;
-        def.statsList.forEach(s => {
-          const n = s.name?.toLowerCase() || '';
-          if (n.includes('weapon') || n.includes('mobility')) weap = s.value;
-          else if (n.includes('health') || n.includes('resilience')) hlth = s.value;
-          else if (n.includes('class') || n.includes('recovery')) clas = s.value;
-          else if (n.includes('grenade') || n.includes('discipline')) gren = s.value;
-          else if (n.includes('super') || n.includes('intellect')) supr = s.value;
-          else if (n.includes('melee') || n.includes('strength')) mele = s.value;
-        });
-        const total = weap + hlth + clas + gren + supr + mele;
-        if (total > 0) {
-          armorStats = {
-            weapons: weap,
-            health: hlth,
-            classAbility: clas,
-            grenade: gren,
-            superAbility: supr,
-            melee: mele,
-            mobility: weap,
-            resilience: hlth,
-            recovery: clas,
-            discipline: gren,
-            intellect: supr,
-            strength: mele,
-            total
-          };
-        }
+        armorStats = normaliseStats(
+          STAT_HASHES.map(({ hash, name }) => ({ name, value: rawStats[hash]?.value || 0 }))
+        );
+      } else if (def.statsList?.length) {
+        const fromDef = normaliseStats(def.statsList);
+        if (fromDef.total > 0) armorStats = fromDef;
       }
 
       return {
@@ -1392,30 +1362,12 @@ export default function GuardianManager({
                       {item.armorStats && (
                         <div className="p-2.5 bg-[#0b0e14] border-b border-[#1e2638]">
                           <div className="grid grid-cols-6 gap-1 text-center font-mono">
-                            <div className="space-y-0.5">
-                              <div className="text-[9px] text-slate-400 font-semibold">WEAP</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.weapons ?? item.armorStats.mobility}</div>
-                            </div>
-                            <div className="space-y-0.5">
-                              <div className="text-[9px] text-slate-400 font-semibold">HLTH</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.health ?? item.armorStats.resilience}</div>
-                            </div>
-                            <div className="space-y-0.5">
-                              <div className="text-[9px] text-slate-400 font-semibold">CLAS</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.classAbility ?? item.armorStats.recovery}</div>
-                            </div>
-                            <div className="space-y-0.5">
-                              <div className="text-[9px] text-slate-400 font-semibold">GREN</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.grenade ?? item.armorStats.discipline}</div>
-                            </div>
-                            <div className="space-y-0.5">
-                              <div className="text-[9px] text-slate-400 font-semibold">SUPR</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.superAbility ?? item.armorStats.intellect}</div>
-                            </div>
-                            <div className="space-y-0.5">
-                              <div className="text-[9px] text-slate-400 font-semibold">MELE</div>
-                              <div className="text-xs font-bold text-white">{item.armorStats.melee ?? item.armorStats.strength}</div>
-                            </div>
+                            {STAT_META.map(st => (
+                              <div key={st.key} className="space-y-0.5">
+                                <div className="text-[9px] text-slate-400 font-semibold">{st.short}</div>
+                                <div className="text-xs font-bold text-white tabular-nums">{item.armorStats[st.key] ?? 0}</div>
+                              </div>
+                            ))}
                           </div>
                         </div>
                       )}
