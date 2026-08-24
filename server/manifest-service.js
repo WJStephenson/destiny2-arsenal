@@ -375,10 +375,11 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
     };
   }
 
-  // Armour set bonuses (the 2-piece / 4-piece perks). The table that carries
-  // them is found by name rather than hard-coded, and every field is probed
-  // rather than assumed, so a manifest that names things differently -- or
-  // predates set bonuses entirely -- yields no sets instead of throwing.
+  // Armour set bonuses (the 2-piece / 4-piece perks), from
+  // DestinyEquipableItemSetDefinition. The World content database uses the full
+  // definition names, while the mobile manifest calls the same table
+  // "EquipableItemSets", so it is matched by pattern rather than hard-coded. A
+  // manifest predating set bonuses simply has no such table and yields no sets.
   console.log('Reading Armour Set Definitions...');
   const armorSetDefs = {};
   try {
@@ -389,17 +390,19 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
     if (setTable) {
       for (const row of db.prepare(`SELECT json FROM ${setTable}`).all()) {
         const data = JSON.parse(row.json);
-        const perks = data.setPerks || data.perks || data.setBonuses || [];
+        // Each setPerks entry is a DestinyItemSetPerkDefinition: requiredSetCount
+        // and sandboxPerkHash only, with no display properties of its own, so
+        // the wording comes from the sandbox perk behind it.
+        const perks = Array.isArray(data.setPerks) ? data.setPerks : [];
         armorSetDefs[data.hash] = {
           hash: data.hash,
-          name: data.displayProperties?.name || data.setName || '',
-          bonuses: (Array.isArray(perks) ? perks : []).map(perk => {
-            const count = perk.requiredSetCount ?? perk.setCount ?? perk.requiredCount ?? null;
-            const sandbox = sandboxDefs[perk.sandboxPerkHash ?? perk.perkHash];
+          name: data.displayProperties?.name || '',
+          bonuses: perks.map(perk => {
+            const sandbox = sandboxDefs[perk.sandboxPerkHash];
             return {
-              count,
-              name: sandbox?.name || perk.displayProperties?.name || '',
-              description: sandbox?.description || perk.displayProperties?.description || ''
+              count: perk.requiredSetCount,
+              name: sandbox?.name || '',
+              description: sandbox?.description || ''
             };
           }).filter(b => b.count != null).sort((a, b) => a.count - b.count)
         };
@@ -842,13 +845,9 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
       }
       stats.Total = totalStats;
 
-      // Which set this piece belongs to. The field naming has moved around, so
-      // each known spelling is tried and an unknown one simply means no set.
-      const setHash = item.equippingBlock?.equipableItemSetHash
-        ?? item.equippingBlock?.itemSetHash
-        ?? item.equipableItemSetHash
-        ?? item.itemSetHash
-        ?? null;
+      // Which set this piece belongs to. Note this is equippingBlock, not the
+      // item's own `setData` -- that one is for quest step lists.
+      const setHash = item.equippingBlock?.equipableItemSetHash ?? null;
       const armorSet = setHash != null ? armorSetDefs[setHash] : null;
 
       armorList.push({
