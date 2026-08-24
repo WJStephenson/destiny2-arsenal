@@ -78,22 +78,41 @@ export function clampStat(value) {
  * object. Live Bungie instances, the bundled client manifest and hand-built
  * fixtures all feed through here.
  */
+/**
+ * Map a stat's display name onto its canonical key. Accepts both the current
+ * names and the pre-Edge-of-Fate ones, since bundled manifest snapshots and
+ * saved data can still carry the old labels.
+ */
+export function statKeyFromName(name) {
+  const n = (name || '').toLowerCase();
+  if (n.includes('weapon') || n.includes('mobility')) return 'weapons';
+  if (n.includes('health') || n.includes('resilience')) return 'health';
+  if (n.includes('class') || n.includes('recovery')) return 'classAbility';
+  if (n.includes('grenade') || n.includes('discipline')) return 'grenade';
+  if (n.includes('super') || n.includes('intellect')) return 'superAbility';
+  if (n.includes('melee') || n.includes('strength')) return 'melee';
+  return null;
+}
+
 export function normaliseStats(source) {
   const out = { weapons: 0, health: 0, classAbility: 0, grenade: 0, superAbility: 0, melee: 0 };
   if (!source) return { ...out, total: 0 };
 
-  if (typeof source.weapons === 'number' || typeof source.health === 'number') {
-    STAT_KEYS.forEach(k => { out[k] = Math.max(0, source[k] || 0); });
-  } else if (Array.isArray(source)) {
+  if (Array.isArray(source)) {
+    // [{ name, value }] -- live instance stats and definition stat lists.
     source.forEach(s => {
-      const n = (s.name || '').toLowerCase();
-      const v = Math.max(0, s.value || 0);
-      if (n.includes('weapon') || n.includes('mobility')) out.weapons = v;
-      else if (n.includes('health') || n.includes('resilience')) out.health = v;
-      else if (n.includes('class') || n.includes('recovery')) out.classAbility = v;
-      else if (n.includes('grenade') || n.includes('discipline')) out.grenade = v;
-      else if (n.includes('super') || n.includes('intellect')) out.superAbility = v;
-      else if (n.includes('melee') || n.includes('strength')) out.melee = v;
+      const key = statKeyFromName(s.name);
+      if (key) out[key] = Math.max(0, s.value || 0);
+    });
+  } else if (STAT_KEYS.some(k => typeof source[k] === 'number')) {
+    STAT_KEYS.forEach(k => { out[k] = Math.max(0, source[k] || 0); });
+  } else {
+    // Label-keyed object, e.g. { Weapons: 12, Health: 20 } or the older
+    // { Mobility: 12, Resilience: 20 } shape from bundled manifest data.
+    Object.entries(source).forEach(([name, value]) => {
+      if (typeof value !== 'number') return;
+      const key = statKeyFromName(name);
+      if (key) out[key] = Math.max(0, value);
     });
   }
 
