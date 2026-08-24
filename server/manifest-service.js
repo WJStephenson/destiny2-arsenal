@@ -13,6 +13,30 @@ const PERKS_FILE = path.join(DATA_DIR, 'perks.json');
 const FILTERS_FILE = path.join(DATA_DIR, 'filters.json');
 const SQLITE_CACHE_FILE = path.join(DATA_DIR, 'manifest.content');
 
+/**
+ * Equipment bucket hashes from DestinyInventoryBucketDefinition, and the armour
+ * ItemSubType values from the API enum. Both are used to slot armour, so a
+ * single wrong number cannot quietly drop a whole slot out of the dataset.
+ */
+const BUCKET_HASHES = {
+  kinetic: 1498876634,
+  energy: 2465295065,
+  power: 953998645,
+  helmet: 3448274439,
+  gauntlets: 3551918588,
+  chest: 14239492,
+  legs: 20886954,
+  classItem: 1585787867
+};
+
+const ITEM_SUB_TYPES = {
+  helmet: 26,
+  gauntlets: 27,
+  chest: 28,
+  legs: 29,
+  classItem: 30
+};
+
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
@@ -725,7 +749,7 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
     else if (itemType === 2) {
       if (item.inventory?.tierTypeName !== 'Exotic' && item.inventory?.tierTypeName !== 'Legendary') continue;
 
-      const armorSlot = getArmorSlotName(item.inventory?.bucketTypeHash);
+      const armorSlot = getArmorSlotName(item.inventory?.bucketTypeHash, item.itemSubType);
       if (!armorSlot) continue;
 
       const classType = getClassTypeName(item.classType);
@@ -900,20 +924,34 @@ function getWeaponTypeName(item) {
 
 function getSlotName(bucketHash) {
   switch (bucketHash) {
-    case 1498876634: return 'Kinetic';
-    case 2465295065: return 'Energy';
-    case 953998645: return 'Power';
+    case BUCKET_HASHES.kinetic: return 'Kinetic';
+    case BUCKET_HASHES.energy: return 'Energy';
+    case BUCKET_HASHES.power: return 'Power';
     default: return 'Kinetic';
   }
 }
 
-function getArmorSlotName(bucketHash) {
+/**
+ * Armour slot for a definition. ItemSubType is the primary source because it
+ * cannot be typo'd into silently dropping a whole slot from the dataset; the
+ * equipment bucket backs it up for anything that predates those subtypes.
+ */
+function getArmorSlotName(bucketHash, itemSubType) {
+  switch (itemSubType) {
+    case ITEM_SUB_TYPES.helmet: return 'Helmet';
+    case ITEM_SUB_TYPES.gauntlets: return 'Gauntlets';
+    case ITEM_SUB_TYPES.chest: return 'Chest Armor';
+    case ITEM_SUB_TYPES.legs: return 'Leg Armor';
+    case ITEM_SUB_TYPES.classItem: return 'Class Item';
+    default: break;
+  }
+
   switch (bucketHash) {
-    case 3448274439: return 'Helmet';
-    case 3551914840: return 'Gauntlets';
-    case 1423977481: return 'Chest Armor';
-    case 2088695045: return 'Leg Armor';
-    case 1585787867: return 'Class Item';
+    case BUCKET_HASHES.helmet: return 'Helmet';
+    case BUCKET_HASHES.gauntlets: return 'Gauntlets';
+    case BUCKET_HASHES.chest: return 'Chest Armor';
+    case BUCKET_HASHES.legs: return 'Leg Armor';
+    case BUCKET_HASHES.classItem: return 'Class Item';
     default: return null;
   }
 }

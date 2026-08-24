@@ -23,6 +23,8 @@
  * those sit on top of whatever the armour itself can reach.
  */
 
+import { ARMOR_SLOT_KEYS } from './destiny-buckets';
+
 export const STAT_KEYS = [
   'weapons',
   'health',
@@ -55,7 +57,8 @@ export const GENERAL_MOD_SLOTS_PER_PIECE = 1;
 /** Flat bonus a masterworked piece adds to each of the six stats. */
 export const MASTERWORK_BONUS_PER_PIECE = 2;
 
-export const ARMOR_SLOTS = ['helmet', 'gauntlets', 'chest', 'legs', 'classItem'];
+/** The five armour slots, in the order builds are assembled. */
+export const ARMOR_SLOTS = ARMOR_SLOT_KEYS;
 export const ARMOR_SLOT_COUNT = ARMOR_SLOTS.length;
 
 /** Bungie ItemState bitmask flag for a masterworked instance. */

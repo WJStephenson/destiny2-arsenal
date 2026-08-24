@@ -265,6 +265,9 @@ function enrichInventoryItem(item, instances, sockets) {
     tierTypeName: baseItem.tierTypeName,
     weaponType: baseItem.weaponType || null,
     armorSlot: baseItem.armorSlot || null,
+    // The client groups gear by these, so a proxied profile has to carry them.
+    isWeapon,
+    isArmor: !isWeapon,
     damageType: baseItem.damageType || null,
     damageColor: baseItem.damageColor || '#e2e8f0',
     slot: baseItem.slot || null,

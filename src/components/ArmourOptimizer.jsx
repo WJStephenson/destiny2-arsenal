@@ -15,24 +15,7 @@ import {
   rankBuilds,
   clampStat
 } from '../utils/armor-stats';
-
-const SLOT_LABELS = {
-  helmet: 'Helmet',
-  gauntlets: 'Gauntlets',
-  chest: 'Chest',
-  legs: 'Legs',
-  classItem: 'Class Item'
-};
-
-function getArmorSlotName(item) {
-  const s = (item.armorSlot || item.slot || item.itemTypeDisplayName || '').toLowerCase();
-  if (s.includes('helmet')) return 'helmet';
-  if (s.includes('gauntlet') || s.includes('arms')) return 'gauntlets';
-  if (s.includes('chest')) return 'chest';
-  if (s.includes('leg') || s.includes('boots') || s.includes('greaves') || s.includes('strides')) return 'legs';
-  if (s.includes('class') || s.includes('mark') || s.includes('cloak') || s.includes('bond')) return 'classItem';
-  return null;
-}
+import { SLOT_LABELS, armorSlotKey } from '../utils/destiny-buckets';
 
 export default function ArmourOptimizer({
   activeChar,
@@ -73,7 +56,7 @@ export default function ArmourOptimizer({
 
     const push = (item, location) => {
       if (!item.isArmor) return;
-      const slot = getArmorSlotName(item);
+      const slot = armorSlotKey(item);
       if (!slot) return;
       pools[slot].push({ ...item, location, slotType: slot, stats: normaliseStats(item.armorStats || item.statsList) });
     };

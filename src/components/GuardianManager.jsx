@@ -22,11 +22,33 @@ import { ITEM_STATE_MASTERWORK, STAT_META, normaliseStats } from '../utils/armor
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
+import {
+  ARMOR_BUCKET_HASHES,
+  WEAPON_BUCKET_HASHES,
+  ARMOR_SLOT_KEYS,
+  WEAPON_SLOT_KEYS,
+  SLOT_LABELS,
+  equipSlotKey,
+  isSameSlot,
+  slotKeyFromBucketHash
+} from '../utils/destiny-buckets';
 import LongPressable from './LongPressable';
 import ArmourOptimizer from './ArmourOptimizer';
 
-/** Every vault item reports this bucket, not the slot it would occupy equipped. */
-const VAULT_BUCKET_HASH = 138197802;
+/** Card headings, which read a little differently from the bare slot names. */
+const WEAPON_SLOT_TITLES = {
+  kinetic: 'Kinetic Slot',
+  energy: 'Energy Slot',
+  power: 'Power / Heavy Slot'
+};
+
+const ARMOR_SLOT_TITLES = {
+  helmet: 'Helmet',
+  gauntlets: 'Gauntlets / Arms',
+  chest: 'Chest Armour',
+  legs: 'Leg Armour',
+  classItem: 'Class Item'
+};
 
 /**
  * The six armour stat hashes. Bungie renamed these stats without changing
@@ -274,8 +296,25 @@ export default function GuardianManager({
 
     function enrichItem(it) {
       const hash = it.itemHash;
-      const localDef = getClientItemByHash(hash) || (defs[hash]?.name ? getClientItemByName(defs[hash].name) : null);
-      const def = localDef || defs[hash] || {};
+      const liveDef = defs[hash] || null;
+
+      // The bundled manifest is richer than the live definition, so it is
+      // preferred -- but only when it is describing the same item. Matching by
+      // name is a last resort for hashes the bundle predates: names repeat
+      // across reissues and across slots, so a match is only trusted when both
+      // definitions agree on what kind of item it is.
+      let localDef = getClientItemByHash(hash);
+      if (!localDef && liveDef?.name) {
+        const byName = getClientItemByName(liveDef.name);
+        const sameKind = byName && (
+          !liveDef.itemTypeDisplayName ||
+          !byName.itemTypeDisplayName ||
+          byName.itemTypeDisplayName === liveDef.itemTypeDisplayName
+        );
+        if (sameKind) localDef = byName;
+      }
+
+      const def = localDef || liveDef || {};
       const inst = it.itemInstanceId ? instances[it.itemInstanceId] : null;
       const sock = it.itemInstanceId ? socketsMap[it.itemInstanceId] : null;
 
@@ -302,9 +341,8 @@ export default function GuardianManager({
       // vault item's own bucketHash is the vault, not its equipment slot.
       let detectedSlot = def.slot;
       if (!detectedSlot) {
-        if (it.bucketHash === 1498876634) detectedSlot = 'Kinetic';
-        else if (it.bucketHash === 2465295065) detectedSlot = 'Energy';
-        else if (it.bucketHash === 953998645) detectedSlot = 'Power';
+        const bucketSlot = slotKeyFromBucketHash(it.bucketHash);
+        if (WEAPON_SLOT_KEYS.includes(bucketSlot)) detectedSlot = SLOT_LABELS[bucketSlot];
       }
 
       // Artifice armour carries an extra +3 mod slot, which the optimizer needs
@@ -351,8 +389,8 @@ export default function GuardianManager({
         itemTypeDisplayName: def.itemTypeDisplayName || (def.isWeapon ? 'Weapon' : def.isArmor ? 'Armour' : ''),
         weaponType: def.isWeapon ? (def.weaponType || def.itemTypeDisplayName) : null,
         armorSlot: def.isArmor ? (def.armorSlot || def.itemTypeDisplayName) : null,
-        isWeapon: def.isWeapon || def.weaponType != null || [1498876634, 2465295065, 953998645].includes(it.bucketHash),
-        isArmor: def.isArmor || def.armorSlot != null || [3448274439, 3551901077, 1423949262, 20886954, 1585787867].includes(it.bucketHash),
+        isWeapon: def.isWeapon || def.weaponType != null || WEAPON_BUCKET_HASHES.includes(it.bucketHash),
+        isArmor: def.isArmor || def.armorSlot != null || ARMOR_BUCKET_HASHES.includes(it.bucketHash),
         isArtifice,
         isMasterwork,
         classType,
@@ -421,59 +459,6 @@ export default function GuardianManager({
       vault
     });
   }
-
-  /**
-   * Canonical equipment slot for an item.
-   *
-   * Everything sitting in the vault reports the vault's own bucket rather than
-   * the slot it would occupy once equipped, so the instance bucket is only
-   * trustworthy for items already on a character. The item definition carries
-   * the real equipment bucket, which is what `slot` / `armorSlot` are built
-   * from, so those come first.
-   */
-  const equipSlotKey = (it) => {
-    if (!it) return null;
-    const named = (it.armorSlot || it.slot || it.itemTypeDisplayName || '').toLowerCase();
-    if (named.includes('helmet')) return 'helmet';
-    if (named.includes('gauntlet') || named.includes('arms')) return 'gauntlets';
-    if (named.includes('chest')) return 'chest';
-    if (named.includes('leg') || named.includes('boots') || named.includes('greaves') || named.includes('strides')) return 'legs';
-    if (named.includes('class') || named.includes('mark') || named.includes('cloak') || named.includes('bond')) return 'classItem';
-    if (named.includes('kinetic')) return 'kinetic';
-    if (named.includes('energy')) return 'energy';
-    if (named.includes('power') || named.includes('heavy')) return 'power';
-
-    switch (it.bucketHash) {
-      case 3448274439: return 'helmet';
-      case 3551901077: return 'gauntlets';
-      case 1423949262: return 'chest';
-      case 20886954: return 'legs';
-      case 1585787867: return 'classItem';
-      case 1498876634: return 'kinetic';
-      case 2465295065: return 'energy';
-      case 953998645: return 'power';
-      default: return null;
-    }
-  };
-
-  /** Do two items compete for the same equipment slot? */
-  const isSameSlot = (a, b) => {
-    if (!a || !b) return false;
-    // Two items can only share a slot if they are the same kind of gear.
-    if (!!a.isWeapon !== !!b.isWeapon) return false;
-    if (!!a.isArmor !== !!b.isArmor) return false;
-
-    const slotA = equipSlotKey(a);
-    const slotB = equipSlotKey(b);
-    if (slotA && slotB) return slotA === slotB;
-
-    // Fall back to the instance bucket, but never for vault items -- they all
-    // share one bucket and would otherwise match each other indiscriminately.
-    if (a.bucketHash && b.bucketHash && a.bucketHash !== VAULT_BUCKET_HASH) {
-      return a.bucketHash === b.bucketHash;
-    }
-    return false;
-  };
 
   /**
    * Bungie answers every action with HTTP 200 and puts the real verdict in the
@@ -871,61 +856,50 @@ export default function GuardianManager({
   const inventoryItems = activeChar?.bag || [];
   const loadoutsList = activeChar?.loadouts || [];
 
-  // Group weapons by slot
-  const kineticEquipped = equippedWeapons.find(w => w.bucketHash === 1498876634 || w.slot === 'Kinetic') || equippedWeapons[0];
-  const energyEquipped = equippedWeapons.find(w => w.bucketHash === 2465295065 || w.slot === 'Energy') || equippedWeapons[1];
-  const powerEquipped = equippedWeapons.find(w => w.bucketHash === 953998645 || w.slot === 'Power') || equippedWeapons[2];
+  /**
+   * One card per equipment slot. The slot comes from the item's own bucket,
+   * which is what the game equips against, so a piece can only appear under the
+   * card it would actually replace -- and each equipped piece lands in exactly
+   * one card instead of being guessed at by position.
+   */
+  const slotCardKey = (it) => {
+    if (!it) return null;
+    const key = equipSlotKey(it);
+    if (!key) return null;
+    // The slot decides the card; the weapon/armour flags only veto a
+    // contradiction, so a pipeline that omits them still fills the screen.
+    if (ARMOR_SLOT_KEYS.includes(key)) return it.isWeapon ? null : key;
+    if (WEAPON_SLOT_KEYS.includes(key)) return it.isArmor ? null : key;
+    return null;
+  };
 
-  const kineticBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 1498876634 || w.slot === 'Kinetic'));
-  const energyBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 2465295065 || w.slot === 'Energy'));
-  const powerBag = inventoryItems.filter(w => w.isWeapon && (w.bucketHash === 953998645 || w.slot === 'Power'));
+  const equippedBySlot = {};
+  (activeChar?.equipped || []).forEach(it => {
+    const key = slotCardKey(it);
+    if (key && !equippedBySlot[key]) equippedBySlot[key] = it;
+  });
 
-  const weaponSlots = [
-    { title: 'Kinetic Slot', equipped: kineticEquipped, bag: kineticBag },
-    { title: 'Energy Slot', equipped: energyEquipped, bag: energyBag },
-    { title: 'Power / Heavy Slot', equipped: powerEquipped, bag: powerBag }
-  ];
+  const bagBySlot = {};
+  inventoryItems.forEach(it => {
+    const key = slotCardKey(it);
+    if (!key) return;
+    if (!bagBySlot[key]) bagBySlot[key] = [];
+    bagBySlot[key].push(it);
+  });
 
-  // Group armor by 5 slots
-  const bagArmor = inventoryItems.filter(it => it.isArmor);
+  const weaponSlots = WEAPON_SLOT_KEYS.map(key => ({
+    key,
+    title: WEAPON_SLOT_TITLES[key],
+    equipped: equippedBySlot[key],
+    bag: bagBySlot[key] || []
+  }));
 
-  const armorSlots = [
-    {
-      key: 'helmet',
-      title: 'Helmet',
-      bucketHash: 3448274439,
-      equipped: equippedArmor.find(it => it.bucketHash === 3448274439 || it.armorSlot?.toLowerCase().includes('helmet') || it.slot?.toLowerCase().includes('helmet') || it.itemTypeDisplayName?.toLowerCase().includes('helmet')),
-      bag: bagArmor.filter(it => it.bucketHash === 3448274439 || it.armorSlot?.toLowerCase().includes('helmet') || it.slot?.toLowerCase().includes('helmet') || it.itemTypeDisplayName?.toLowerCase().includes('helmet'))
-    },
-    {
-      key: 'gauntlets',
-      title: 'Gauntlets / Arms',
-      bucketHash: 3551901077,
-      equipped: equippedArmor.find(it => it.bucketHash === 3551901077 || it.armorSlot?.toLowerCase().includes('gauntlet') || it.slot?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('arms')),
-      bag: bagArmor.filter(it => it.bucketHash === 3551901077 || it.armorSlot?.toLowerCase().includes('gauntlet') || it.slot?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('gauntlet') || it.itemTypeDisplayName?.toLowerCase().includes('arms'))
-    },
-    {
-      key: 'chest',
-      title: 'Chest Armour',
-      bucketHash: 1423949262,
-      equipped: equippedArmor.find(it => it.bucketHash === 1423949262 || it.armorSlot?.toLowerCase().includes('chest') || it.slot?.toLowerCase().includes('chest') || it.itemTypeDisplayName?.toLowerCase().includes('chest')),
-      bag: bagArmor.filter(it => it.bucketHash === 1423949262 || it.armorSlot?.toLowerCase().includes('chest') || it.slot?.toLowerCase().includes('chest') || it.itemTypeDisplayName?.toLowerCase().includes('chest'))
-    },
-    {
-      key: 'legs',
-      title: 'Leg Armour',
-      bucketHash: 20886954,
-      equipped: equippedArmor.find(it => it.bucketHash === 20886954 || it.armorSlot?.toLowerCase().includes('leg') || it.slot?.toLowerCase().includes('leg') || it.itemTypeDisplayName?.toLowerCase().includes('leg')),
-      bag: bagArmor.filter(it => it.bucketHash === 20886954 || it.armorSlot?.toLowerCase().includes('leg') || it.slot?.toLowerCase().includes('leg') || it.itemTypeDisplayName?.toLowerCase().includes('leg'))
-    },
-    {
-      key: 'classItem',
-      title: 'Class Item',
-      bucketHash: 1585787867,
-      equipped: equippedArmor.find(it => it.bucketHash === 1585787867 || it.armorSlot?.toLowerCase().includes('class') || it.slot?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('mark') || it.itemTypeDisplayName?.toLowerCase().includes('cloak') || it.itemTypeDisplayName?.toLowerCase().includes('bond')),
-      bag: bagArmor.filter(it => it.bucketHash === 1585787867 || it.armorSlot?.toLowerCase().includes('class') || it.slot?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('class') || it.itemTypeDisplayName?.toLowerCase().includes('mark') || it.itemTypeDisplayName?.toLowerCase().includes('cloak') || it.itemTypeDisplayName?.toLowerCase().includes('bond'))
-    }
-  ];
+  const armorSlots = ARMOR_SLOT_KEYS.map(key => ({
+    key,
+    title: ARMOR_SLOT_TITLES[key],
+    equipped: equippedBySlot[key],
+    bag: bagBySlot[key] || []
+  }));
 
   const filteredVaultItems = (profileData?.vault || []).filter(item => {
     if (vaultFilter === 'weapons' && !item.isWeapon) return false;
