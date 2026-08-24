@@ -142,3 +142,63 @@ export function withoutDuplicateEnhancedPerks(perks = []) {
     return !baseNames.has(stripped);
   });
 }
+
+/**
+ * The socket columns that make up a weapon's roll, in reading order.
+ *
+ * The manifest parser labels several unrelated sockets "Trait", and they are
+ * not traits at all: one holds weapon mods (Counterbalance Stock, Backup Mag,
+ * Icarus Grip), one the masterwork options ("Masterworked: Stability"), and one
+ * the crafting socket ("Extract Pattern"). None of them are things a weapon
+ * rolls with, so showing them alongside the real columns roughly triples the
+ * matrix with sockets you cannot roll for.
+ */
+export const ROLL_COLUMN_ORDER = [
+  'Barrel/Sight',
+  'Magazine/Battery',
+  'Perk Column 3',
+  'Perk Column 4',
+  'Origin Trait'
+];
+
+/**
+ * A weapon's roll columns only, in a stable order regardless of how the
+ * manifest happened to list them.
+ */
+export function rollColumns(socketColumns = []) {
+  return (socketColumns || [])
+    .filter(col => ROLL_COLUMN_ORDER.includes(col.type))
+    .sort((a, b) => ROLL_COLUMN_ORDER.indexOf(a.type) - ROLL_COLUMN_ORDER.indexOf(b.type));
+}
+
+/**
+ * Ammo colours follow the in-game convention -- white for Primary, green for
+ * Special, purple for Heavy -- so the chip reads at a glance without needing
+ * the word.
+ */
+export function getAmmoInfo(ammoType) {
+  switch ((ammoType || '').toLowerCase()) {
+    case 'special':
+      return { name: 'Special', bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-emerald-500/30' };
+    case 'heavy':
+      return { name: 'Heavy', bg: 'bg-purple-500/15', text: 'text-purple-300', border: 'border-purple-500/30' };
+    case 'primary':
+      return { name: 'Primary', bg: 'bg-slate-400/15', text: 'text-slate-200', border: 'border-slate-400/30' };
+    default:
+      return null;
+  }
+}
+
+/** The equipment slot a weapon occupies, distinct from its damage type. */
+export function getSlotInfo(slot) {
+  switch ((slot || '').toLowerCase()) {
+    case 'kinetic':
+      return { name: 'Kinetic', bg: 'bg-slate-700/40', text: 'text-slate-300', border: 'border-slate-600/40' };
+    case 'energy':
+      return { name: 'Energy', bg: 'bg-sky-500/15', text: 'text-sky-300', border: 'border-sky-500/30' };
+    case 'power':
+      return { name: 'Power', bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-amber-500/30' };
+    default:
+      return null;
+  }
+}

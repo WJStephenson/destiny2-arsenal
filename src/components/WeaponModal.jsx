@@ -16,7 +16,7 @@ import {
   Award,
   ShieldAlert
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge, withoutDuplicateEnhancedPerks } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo, getSourceCategoryBadge, withoutDuplicateEnhancedPerks, rollColumns } from '../utils/destiny-helpers';
 import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
 
@@ -325,7 +325,7 @@ export default function WeaponModal({
                   their name in `title` and `alt` rather than on screen, so the
                   matrix stays scannable and a tap opens the full detail. */}
               <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-1">
-                {weapon.socketColumns.map((col, cIdx) => {
+                {rollColumns(weapon.socketColumns).map((col, cIdx) => {
                   // Enhanced twins are dropped here rather than in the data, so
                   // an owned weapon's actual enhanced roll still reads correctly
                   // in the section above.
