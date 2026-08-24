@@ -21,6 +21,7 @@ import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { ITEM_STATE_MASTERWORK, STAT_META, normaliseStats } from '../utils/armor-stats';
 import { ensureApiKey, getStoredAuthSession, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
+import { batchResolveSetDefinitions } from '../utils/set-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
 import {
   ARMOR_BUCKET_HASHES,
@@ -350,6 +351,13 @@ export default function GuardianManager({
 
     const defs = await batchResolveItemDefinitions(allHashesToResolve);
 
+    // Armour points at its set by hash only, so the set's name and its
+    // 2-piece / 4-piece bonuses have to be resolved separately -- otherwise
+    // the optimizer can group a set but not say what it is.
+    const setDefs = await batchResolveSetDefinitions(
+      Object.values(defs).map(d => d?.setHash).filter(h => h !== null && h !== undefined)
+    );
+
     function enrichItem(it) {
       const hash = it.itemHash;
       const liveDef = defs[hash] || null;
@@ -414,6 +422,10 @@ export default function GuardianManager({
       // it null rather than filtering the piece out of every Guardian's pool.
       const classType = def.classType && def.classType !== 'Any' ? def.classType : null;
 
+      const armorSet = def.setHash !== null && def.setHash !== undefined
+        ? setDefs[String(def.setHash)]
+        : null;
+
       // Armour stats. Bungie kept the original stat hashes through the rename,
       // so these are still the six armour stats -- now Weapons, Health, Class,
       // Grenade, Super and Melee. Live instance stats win; the definition's
@@ -454,9 +466,9 @@ export default function GuardianManager({
         isMasterwork,
         classType,
         // Set identity, for the optimizer's 2-piece / 4-piece bonus targeting.
-        setHash: def.setHash ?? null,
-        setName: def.setName || null,
-        setBonuses: def.setBonuses || [],
+        setHash: armorSet?.hash ?? def.setHash ?? null,
+        setName: armorSet?.name || def.setName || null,
+        setBonuses: armorSet?.bonuses?.length ? armorSet.bonuses : (def.setBonuses || []),
         baseItem: def,
         socketColumns: def.socketColumns || [],
         statsList: def.statsList || [],

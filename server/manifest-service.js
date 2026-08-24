@@ -14,6 +14,18 @@ const FILTERS_FILE = path.join(DATA_DIR, 'filters.json');
 const SQLITE_CACHE_FILE = path.join(DATA_DIR, 'manifest.content');
 
 /**
+ * The browser fetches these from /data/*.json, which is served out of public/.
+ * A sync that only wrote to DATA_DIR left the app reading whatever was last
+ * checked in, so the output is written to both: DATA_DIR for the server's own
+ * API, public/data for the client bundle.
+ *
+ * Weapons are split because the whole catalogue is ~28MB; three chunks keep
+ * each file under the size that HTTP/2 can fetch in parallel comfortably.
+ */
+const PUBLIC_DATA_DIR = path.join(__dirname, '..', 'public', 'data');
+const WEAPON_CHUNKS = 3;
+
+/**
  * Equipment bucket hashes from DestinyInventoryBucketDefinition, and the armour
  * ItemSubType values from the API enum. Both are used to slot armour, so a
  * single wrong number cannot quietly drop a whole slot out of the dataset.
@@ -910,6 +922,20 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
   fs.writeFileSync(ARMOR_FILE, JSON.stringify(uniqueArmor));
   fs.writeFileSync(PERKS_FILE, JSON.stringify(perksCatalog));
   fs.writeFileSync(FILTERS_FILE, JSON.stringify(filtersData));
+
+  // Same data, in the shape and place the browser actually reads.
+  fs.mkdirSync(PUBLIC_DATA_DIR, { recursive: true });
+  const chunkSize = Math.ceil(uniqueWeapons.length / WEAPON_CHUNKS);
+  for (let i = 0; i < WEAPON_CHUNKS; i++) {
+    fs.writeFileSync(
+      path.join(PUBLIC_DATA_DIR, `weapons-${i + 1}.json`),
+      JSON.stringify(uniqueWeapons.slice(i * chunkSize, (i + 1) * chunkSize))
+    );
+  }
+  fs.writeFileSync(path.join(PUBLIC_DATA_DIR, 'armor.json'), JSON.stringify(uniqueArmor));
+  fs.writeFileSync(path.join(PUBLIC_DATA_DIR, 'perks.json'), JSON.stringify(Object.values(perksCatalog)));
+  fs.writeFileSync(path.join(PUBLIC_DATA_DIR, 'filters.json'), JSON.stringify(filtersData));
+  console.log(`Wrote client data to public/data (${WEAPON_CHUNKS} weapon chunks, ${uniqueArmor.length} armour, ${Object.keys(perksCatalog).length} perks).`);
 
   loadCachedData();
 }
