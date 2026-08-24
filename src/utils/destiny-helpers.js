@@ -114,3 +114,31 @@ export function removeWishlistRoll(rollId) {
     return [];
   }
 }
+
+/**
+ * Drop enhanced perks that merely restate a base perk in the same column.
+ *
+ * Almost every perk on a craftable weapon is listed twice -- "Rewind Rounds"
+ * and its enhanced twin -- which doubles the length of every column for no
+ * added choice.
+ *
+ * Not every enhanced entry is a duplicate, though. Crafted weapons also carry
+ * enhanced-only stat perks ("Enhanced Stability", "Enhanced Range") that have
+ * no base version at all, and those are real options rather than restatements.
+ * Roughly 1,800 entries across the catalogue fall into that group, so matching
+ * on the enhanced flag alone would quietly delete them. Only an enhanced perk
+ * whose base twin is present in the same column is removed.
+ */
+export function withoutDuplicateEnhancedPerks(perks = []) {
+  const baseNames = new Set(
+    perks.filter(p => !p.isEnhanced).map(p => (p.name || '').toLowerCase())
+  );
+
+  return perks.filter(p => {
+    if (!p.isEnhanced) return true;
+    // Enhanced entries are named either exactly like their base perk or with an
+    // "Enhanced " prefix, depending on the perk.
+    const stripped = (p.name || '').toLowerCase().replace(/^enhanced\s+/, '');
+    return !baseNames.has(stripped);
+  });
+}

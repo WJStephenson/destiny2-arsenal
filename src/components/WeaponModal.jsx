@@ -16,7 +16,7 @@ import {
   Award,
   ShieldAlert
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo, getSourceCategoryBadge, withoutDuplicateEnhancedPerks } from '../utils/destiny-helpers';
 import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
 
@@ -325,17 +325,22 @@ export default function WeaponModal({
                   their name in `title` and `alt` rather than on screen, so the
                   matrix stays scannable and a tap opens the full detail. */}
               <div className="flex gap-1.5 sm:gap-2 overflow-x-auto pb-1">
-                {weapon.socketColumns.map((col, cIdx) => (
+                {weapon.socketColumns.map((col, cIdx) => {
+                  // Enhanced twins are dropped here rather than in the data, so
+                  // an owned weapon's actual enhanced roll still reads correctly
+                  // in the section above.
+                  const perks = withoutDuplicateEnhancedPerks(col.perks || []);
+                  return (
                   <div key={cIdx} className="flex-1 min-w-[52px] space-y-2">
                     <div
                       className="text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono text-center truncate border-b border-[#20293a] pb-1"
-                      title={`${col.type} (${col.perks?.length || 0})`}
+                      title={`${col.type} (${perks.length})`}
                     >
                       {COLUMN_LABELS[col.type] || col.type}
                     </div>
 
                     <div className="flex flex-col items-center gap-1.5">
-                      {(col.perks || []).map((p) => {
+                      {perks.map((p) => {
                         const info = {
                           name: p.name,
                           category: p.category || 'Perk',
@@ -371,7 +376,8 @@ export default function WeaponModal({
                       })}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

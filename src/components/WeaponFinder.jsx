@@ -25,7 +25,7 @@ import {
   Compass,
   Info
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery, withoutDuplicateEnhancedPerks } from '../utils/destiny-helpers';
 import { searchWeaponsClient, getSuggestionsClient, searchPerksClient } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
@@ -925,7 +925,7 @@ export default function WeaponFinder({
                       {w.socketColumns
                         .map(col => ({
                           type: col.type,
-                          perks: (col.perks || []).filter(p =>
+                          perks: withoutDuplicateEnhancedPerks(col.perks || []).filter(p =>
                             selectedPerks.some(sp => sp.toLowerCase() === p.name.toLowerCase())
                           )
                         }))
