@@ -126,21 +126,42 @@ export function removeWishlistRoll(rollId) {
  * enhanced-only stat perks ("Enhanced Stability", "Enhanced Range") that have
  * no base version at all, and those are real options rather than restatements.
  * Roughly 1,800 entries across the catalogue fall into that group, so matching
- * on the enhanced flag alone would quietly delete them. Only an enhanced perk
- * whose base twin is present in the same column is removed.
+ * on the enhanced flag alone would quietly delete them. Only entries that
+ * collapse onto the same base name are folded together.
  */
 export function withoutDuplicateEnhancedPerks(perks = []) {
-  const baseNames = new Set(
-    perks.filter(p => !p.isEnhanced).map(p => (p.name || '').toLowerCase())
-  );
-
-  return perks.filter(p => {
-    if (!p.isEnhanced) return true;
-    // Enhanced entries are named either exactly like their base perk or with an
-    // "Enhanced " prefix, depending on the perk.
-    const stripped = (p.name || '').toLowerCase().replace(/^enhanced\s+/, '');
-    return !baseNames.has(stripped);
+  // A perk keeps only one slot per base name. Which entry that is cannot be
+  // decided by the enhanced flag alone: "Enhanced Battery" and "Enhanced
+  // Heatsink" are the names of real base perks, so the manifest's own naming
+  // marks both halves of those pairs as enhanced. Preferring an unenhanced
+  // entry and otherwise the first listed picks the base perk either way.
+  const chosen = new Map();
+  perks.forEach((p, idx) => {
+    const key = basePerkName(p) || `#${idx}`;
+    const current = chosen.get(key);
+    if (current === undefined) {
+      chosen.set(key, idx);
+    } else if (perks[current].isEnhanced && !p.isEnhanced) {
+      chosen.set(key, idx);
+    }
   });
+
+  return perks.filter((p, idx) => chosen.get(basePerkName(p) || `#${idx}`) === idx);
+}
+
+/**
+ * The name an enhanced perk shares with its base twin.
+ *
+ * Enhanced entries are named exactly like their base perk, with an "Enhanced "
+ * prefix, or -- for a handful such as "Golden Tricorn Enhanced" -- with the
+ * word tacked on the end instead.
+ */
+function basePerkName(perk) {
+  return (perk?.name || '')
+    .toLowerCase()
+    .trim()
+    .replace(/^enhanced\s+/, '')
+    .replace(/\s+enhanced$/, '');
 }
 
 /**
