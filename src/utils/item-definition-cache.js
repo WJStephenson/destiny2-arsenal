@@ -57,13 +57,9 @@ export async function getItemDefinition(itemHash) {
         damageType: damageTypeMap[damageTypeEnum] || 'Kinetic',
         isWeapon: data.Response.itemType === 3,
         isArmor: data.Response.itemType === 2,
-        // Armour set membership, for set-bonus targeting. The field has moved
-        // around between manifest versions, so each known spelling is tried and
-        // an unknown one simply means the piece belongs to no set.
-        setHash: data.Response.equippingBlock?.equipableItemSetHash
-          ?? data.Response.equippingBlock?.itemSetHash
-          ?? data.Response.equipableItemSetHash
-          ?? null
+        // Armour set membership, for set-bonus targeting. Not the item's own
+        // `setData` -- that one is for quest step lists.
+        setHash: data.Response.equippingBlock?.equipableItemSetHash ?? null
       };
 
       memoryCache.set(hashKey, def);

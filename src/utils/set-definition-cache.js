@@ -16,15 +16,11 @@ const memoryCache = new Map();
 const perkCache = new Map();
 
 /**
- * The definition table has been named differently across manifest versions.
- * The first name that answers is remembered, so the cost of guessing is paid
- * once per session rather than per set.
+ * Per the Bungie API spec: Destiny.Definitions.Items
+ * .DestinyEquipableItemSetDefinition, reachable through the entity endpoint
+ * /Destiny2/Manifest/{entityType}/{hashIdentifier}/.
  */
-const SET_TABLE_CANDIDATES = [
-  'DestinyEquipableItemSetDefinition',
-  'DestinyItemSetDefinition'
-];
-let resolvedSetTable = null;
+const SET_TABLE = 'DestinyEquipableItemSetDefinition';
 
 function authHeaders() {
   const settings = getStoredSettings();
@@ -81,14 +77,7 @@ export async function getSetDefinition(setHash) {
 
   let response = null;
   try {
-    const tables = resolvedSetTable ? [resolvedSetTable] : SET_TABLE_CANDIDATES;
-    for (const table of tables) {
-      response = await fetchDefinition(table, key);
-      if (response) {
-        resolvedSetTable = table;
-        break;
-      }
-    }
+    response = await fetchDefinition(SET_TABLE, key);
   } catch (e) {
     response = null;
   }
@@ -100,18 +89,21 @@ export async function getSetDefinition(setHash) {
     return null;
   }
 
-  // Field naming has moved around, so each known spelling is probed.
-  const rawPerks = response.setPerks || response.perks || response.setBonuses || [];
+  // setPerks -- "the perks conferred by this set of armor pieces". Each entry
+  // is a DestinyItemSetPerkDefinition, which carries only requiredSetCount and
+  // sandboxPerkHash: it has no display properties of its own, so the name and
+  // description have to come from the sandbox perk behind it.
+  const rawPerks = Array.isArray(response.setPerks) ? response.setPerks : [];
   const bonuses = [];
 
-  for (const perk of Array.isArray(rawPerks) ? rawPerks : []) {
-    const count = perk.requiredSetCount ?? perk.setCount ?? perk.requiredCount ?? null;
-    if (count === null) continue;
-    const sandbox = await getSandboxPerk(perk.sandboxPerkHash ?? perk.perkHash);
+  for (const perk of rawPerks) {
+    const count = perk.requiredSetCount;
+    if (count === null || count === undefined) continue;
+    const sandbox = await getSandboxPerk(perk.sandboxPerkHash);
     bonuses.push({
       count,
-      name: sandbox?.name || perk.displayProperties?.name || `${count}-piece bonus`,
-      description: sandbox?.description || perk.displayProperties?.description || ''
+      name: sandbox?.name || `${count}-piece bonus`,
+      description: sandbox?.description || ''
     });
   }
 
