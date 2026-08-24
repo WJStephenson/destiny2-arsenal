@@ -1,30 +1,46 @@
 import React, { useState, useMemo } from 'react';
-import { 
-  Shield, 
-  Sparkles, 
-  Zap, 
-  Sliders, 
-  Check, 
-  Layers, 
-  Cpu, 
-  RotateCcw,
-  Box,
-  ChevronRight,
-  TrendingUp,
-  AlertCircle
-} from 'lucide-react';
+import { Zap, Check, RotateCcw, AlertCircle, Lock, Unlock } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
-import LongPressable from './LongPressable';
+import {
+  STAT_KEYS,
+  STAT_META,
+  STAT_MAX,
+  STAT_TIER_SIZE,
+  OVERCHARGE_THRESHOLD,
+  MINOR_MOD_VALUE,
+  ARMOR_SLOTS,
+  normaliseStats,
+  buildComboIndex,
+  computeStatRanges,
+  rankBuilds,
+  clampStat
+} from '../utils/armor-stats';
+
+const SLOT_LABELS = {
+  helmet: 'Helmet',
+  gauntlets: 'Gauntlets',
+  chest: 'Chest',
+  legs: 'Legs',
+  classItem: 'Class Item'
+};
+
+function getArmorSlotName(item) {
+  const s = (item.armorSlot || item.slot || item.itemTypeDisplayName || '').toLowerCase();
+  if (s.includes('helmet')) return 'helmet';
+  if (s.includes('gauntlet') || s.includes('arms')) return 'gauntlets';
+  if (s.includes('chest')) return 'chest';
+  if (s.includes('leg') || s.includes('boots') || s.includes('greaves') || s.includes('strides')) return 'legs';
+  if (s.includes('class') || s.includes('mark') || s.includes('cloak') || s.includes('bond')) return 'classItem';
+  return null;
+}
 
 export default function ArmourOptimizer({
   activeChar,
   vault = [],
   onEquipItem,
   onTransferItem,
-  onOpenInfo,
   onSelectArmor
 }) {
-  // Target Stat Points (0 to 200 Scale)
   const [targetStats, setTargetStats] = useState({
     weapons: 30,
     health: 100,
@@ -41,336 +57,172 @@ export default function ArmourOptimizer({
   const [isBuilding, setIsBuilding] = useState(false);
   const [buildingStatus, setBuildingStatus] = useState(null);
 
-  // 6 Frontiers Stats
-  const statMeta = [
-    { key: 'weapons', label: 'Weapons', short: 'WEAP' },
-    { key: 'health', label: 'Health', short: 'HLTH' },
-    { key: 'classAbility', label: 'Class', short: 'CLAS' },
-    { key: 'grenade', label: 'Grenade', short: 'GREN' },
-    { key: 'superAbility', label: 'Super', short: 'SUPR' },
-    { key: 'melee', label: 'Melee', short: 'MELE' }
-  ];
-
-  // Presets
   const presets = [
-    {
-      name: 'Double Grenade & Health',
-      stats: { weapons: 30, health: 100, classAbility: 60, grenade: 120, superAbility: 80, melee: 20 }
-    },
-    {
-      name: 'Double Melee & Brawler',
-      stats: { weapons: 20, health: 100, classAbility: 80, grenade: 30, superAbility: 40, melee: 120 }
-    },
-    {
-      name: 'Super & Weapons Gunner',
-      stats: { weapons: 100, health: 80, classAbility: 40, grenade: 80, superAbility: 110, melee: 30 }
-    },
-    {
-      name: 'Max Health Tank',
-      stats: { weapons: 60, health: 120, classAbility: 100, grenade: 50, superAbility: 40, melee: 20 }
-    }
+    { name: 'Grenade Spam', stats: { weapons: 20, health: 100, classAbility: 60, grenade: 150, superAbility: 40, melee: 20 } },
+    { name: 'Tank', stats: { weapons: 20, health: 200, classAbility: 100, grenade: 40, superAbility: 40, melee: 20 } },
+    { name: 'Super Focus', stats: { weapons: 30, health: 100, classAbility: 60, grenade: 40, superAbility: 150, melee: 30 } },
+    { name: 'Weapon Damage', stats: { weapons: 150, health: 100, classAbility: 50, grenade: 40, superAbility: 40, melee: 20 } },
+    { name: 'Melee Brawler', stats: { weapons: 30, health: 120, classAbility: 60, grenade: 30, superAbility: 40, melee: 150 } },
+    { name: 'Balanced', stats: { weapons: 70, health: 100, classAbility: 70, grenade: 70, superAbility: 70, melee: 70 } }
   ];
 
-  const getArmorSlotName = (item) => {
-    if (item.bucketHash === 3448274439 || item.armorSlot?.toLowerCase().includes('helmet') || item.slot?.toLowerCase().includes('helmet')) return 'helmet';
-    if (item.bucketHash === 3551901077 || item.armorSlot?.toLowerCase().includes('gauntlet') || item.slot?.toLowerCase().includes('gauntlet') || item.itemTypeDisplayName?.toLowerCase().includes('gauntlet') || item.itemTypeDisplayName?.toLowerCase().includes('arms')) return 'gauntlets';
-    if (item.bucketHash === 1423949262 || item.armorSlot?.toLowerCase().includes('chest') || item.slot?.toLowerCase().includes('chest') || item.itemTypeDisplayName?.toLowerCase().includes('chest')) return 'chest';
-    if (item.bucketHash === 20886954 || item.armorSlot?.toLowerCase().includes('leg') || item.slot?.toLowerCase().includes('leg') || item.itemTypeDisplayName?.toLowerCase().includes('leg')) return 'legs';
-    if (item.bucketHash === 1585787867 || item.armorSlot?.toLowerCase().includes('class') || item.slot?.toLowerCase().includes('class') || item.itemTypeDisplayName?.toLowerCase().includes('class') || item.itemTypeDisplayName?.toLowerCase().includes('mark') || item.itemTypeDisplayName?.toLowerCase().includes('cloak') || item.itemTypeDisplayName?.toLowerCase().includes('bond')) return 'classItem';
-    return null;
-  };
+  /** Every armour piece this Guardian could actually wear, from all three locations. */
+  const armorPools = useMemo(() => {
+    const pools = Object.fromEntries(ARMOR_SLOTS.map(s => [s, []]));
+    if (!activeChar) return pools;
 
-  const getItemStats = (item) => {
-    if (item.armorStats && typeof item.armorStats === 'object') {
-      return {
-        weapons: item.armorStats.weapons ?? item.armorStats.mobility ?? 0,
-        health: item.armorStats.health ?? item.armorStats.resilience ?? 0,
-        classAbility: item.armorStats.classAbility ?? item.armorStats.recovery ?? 0,
-        grenade: item.armorStats.grenade ?? item.armorStats.discipline ?? 0,
-        superAbility: item.armorStats.superAbility ?? item.armorStats.intellect ?? 0,
-        melee: item.armorStats.melee ?? item.armorStats.strength ?? 0,
-        total: item.armorStats.total || 0
-      };
-    }
-    let weap = 0, hlth = 0, clas = 0, gren = 0, supr = 0, mele = 0;
-    if (item.statsList) {
-      item.statsList.forEach(s => {
-        const n = s.name?.toLowerCase() || '';
-        if (n.includes('weapon') || n.includes('mobility')) weap = s.value;
-        else if (n.includes('health') || n.includes('resilience')) hlth = s.value;
-        else if (n.includes('class') || n.includes('recovery')) clas = s.value;
-        else if (n.includes('grenade') || n.includes('discipline')) gren = s.value;
-        else if (n.includes('super') || n.includes('intellect')) supr = s.value;
-        else if (n.includes('melee') || n.includes('strength')) mele = s.value;
-      });
-    }
-    return {
-      weapons: weap,
-      health: hlth,
-      classAbility: clas,
-      grenade: gren,
-      superAbility: supr,
-      melee: mele,
-      total: weap + hlth + clas + gren + supr + mele
+    const push = (item, location) => {
+      if (!item.isArmor) return;
+      const slot = getArmorSlotName(item);
+      if (!slot) return;
+      pools[slot].push({ ...item, location, slotType: slot, stats: normaliseStats(item.armorStats || item.statsList) });
     };
-  };
 
-  const allOwnedArmor = useMemo(() => {
-    if (!activeChar) return [];
-    const charClass = activeChar.classType;
-    const items = [];
-
-    (activeChar.equipped || []).forEach(it => {
-      if (it.isArmor) {
-        const slot = getArmorSlotName(it);
-        if (slot) items.push({ ...it, location: 'equipped', slotType: slot, stats: getItemStats(it) });
-      }
-    });
-
-    (activeChar.bag || []).forEach(it => {
-      if (it.isArmor) {
-        const slot = getArmorSlotName(it);
-        if (slot) items.push({ ...it, location: 'bag', slotType: slot, stats: getItemStats(it) });
-      }
-    });
-
+    (activeChar.equipped || []).forEach(it => push(it, 'equipped'));
+    (activeChar.bag || []).forEach(it => push(it, 'bag'));
     (vault || []).forEach(it => {
-      if (it.isArmor) {
-        const itemClass = it.classType || (it.itemTypeDisplayName?.includes('Titan') ? 'Titan' : it.itemTypeDisplayName?.includes('Hunter') ? 'Hunter' : it.itemTypeDisplayName?.includes('Warlock') ? 'Warlock' : null);
-        if (!itemClass || itemClass === charClass) {
-          const slot = getArmorSlotName(it);
-          if (slot) items.push({ ...it, location: 'vault', slotType: slot, stats: getItemStats(it) });
-        }
-      }
+      // Vault holds every class's armour; only this Guardian's is usable.
+      if (it.classType && it.classType !== activeChar.classType) return;
+      push(it, 'vault');
     });
 
-    return items;
+    return pools;
   }, [activeChar, vault]);
+
+  /**
+   * Source filters match on the fields the live profile pipeline actually
+   * populates (source category, source string and item name) rather than on
+   * set metadata that only exists for the bundled manifest entries.
+   * Exotics are always kept -- they are never part of a set.
+   */
+  const filteredPools = useMemo(() => {
+    if (selectedSetFilter === 'any') return armorPools;
+
+    const matches = (it) => {
+      if (it.tierTypeName === 'Exotic') return true;
+      if (selectedSetFilter === 'artifice') return !!it.isArtifice;
+      const haystack = `${it.sourceCategory || ''} ${it.sourceString || ''} ${it.name || ''}`.toLowerCase();
+      if (selectedSetFilter === 'iron_banner') return haystack.includes('iron banner') || haystack.includes('iron ');
+      if (selectedSetFilter === 'raid') return haystack.includes('raid') || haystack.includes('dungeon');
+      if (selectedSetFilter === 'trials') return haystack.includes('trials');
+      return true;
+    };
+
+    return Object.fromEntries(ARMOR_SLOTS.map(s => [s, armorPools[s].filter(matches)]));
+  }, [armorPools, selectedSetFilter]);
+
+  const totalPieces = useMemo(
+    () => ARMOR_SLOTS.reduce((acc, s) => acc + filteredPools[s].length, 0),
+    [filteredPools]
+  );
 
   const availableExotics = useMemo(() => {
     const map = new Map();
-    allOwnedArmor.forEach(it => {
+    ARMOR_SLOTS.forEach(slot => filteredPools[slot].forEach(it => {
       if (it.tierTypeName === 'Exotic') {
-        const h = it.itemHash || it.id;
+        const h = String(it.itemHash ?? it.id);
         if (!map.has(h)) map.set(h, it);
       }
-    });
+    }));
     return Array.from(map.values());
-  }, [allOwnedArmor]);
+  }, [filteredPools]);
 
-  // Optimization calculation
-  const calculatedBuilds = useMemo(() => {
-    if (allOwnedArmor.length === 0) return [];
+  /**
+   * The combination index only depends on what armour exists and which exotic
+   * is pinned, so it survives every target tweak. That is what keeps the
+   * ranges below responsive while sliders move.
+   */
+  const comboIndex = useMemo(
+    () => buildComboIndex(filteredPools, { exoticHash: selectedExoticHash }),
+    [filteredPools, selectedExoticHash]
+  );
 
-    let filteredPool = allOwnedArmor;
-    if (selectedSetFilter === 'artifice') {
-      filteredPool = allOwnedArmor.filter(it => it.isArtifice || it.tierTypeName === 'Exotic');
-    } else if (selectedSetFilter === 'iron_banner') {
-      filteredPool = allOwnedArmor.filter(it => it.setName?.includes('Iron') || it.name?.includes('Iron') || it.tierTypeName === 'Exotic');
-    } else if (selectedSetFilter === 'raid') {
-      filteredPool = allOwnedArmor.filter(it => it.setCategory === 'Raids & Dungeons' || it.tierTypeName === 'Exotic');
-    } else if (selectedSetFilter === 'moments_of_triumph') {
-      filteredPool = allOwnedArmor.filter(it => it.setName?.includes('Triumph') || it.tierTypeName === 'Exotic');
-    }
+  const modOptions = useMemo(
+    () => ({ assumeMasterwork, assumeArtifice }),
+    [assumeMasterwork, assumeArtifice]
+  );
 
-    const helmets = filteredPool.filter(it => it.slotType === 'helmet');
-    const arms = filteredPool.filter(it => it.slotType === 'gauntlets');
-    const chests = filteredPool.filter(it => it.slotType === 'chest');
-    const legs = filteredPool.filter(it => it.slotType === 'legs');
-    const classItems = filteredPool.filter(it => it.slotType === 'classItem');
+  /**
+   * For each stat: the lowest and highest value still reachable while the
+   * other five targets hold. Recomputed on every edit.
+   */
+  const { ranges, anyFeasible } = useMemo(
+    () => computeStatRanges(comboIndex, targetStats, modOptions),
+    [comboIndex, targetStats, modOptions]
+  );
 
-    const dummyClass = classItems.length > 0 ? classItems : [{
-      name: `${activeChar?.classType || ''} Class Item`,
-      tierTypeName: 'Legendary',
-      slotType: 'classItem',
-      stats: { weapons: 0, health: 0, classAbility: 0, grenade: 0, superAbility: 0, melee: 0, total: 0 }
-    }];
+  const rangeByKey = useMemo(
+    () => Object.fromEntries(ranges.map(r => [r.key, r])),
+    [ranges]
+  );
 
-    const results = [];
-    const topH = helmets.slice(0, 12);
-    const topA = arms.slice(0, 12);
-    const topC = chests.slice(0, 12);
-    const topL = legs.slice(0, 12);
-    const topCI = dummyClass.slice(0, 3);
+  const builds = useMemo(
+    () => rankBuilds(comboIndex, targetStats, modOptions, 10),
+    [comboIndex, targetStats, modOptions]
+  );
 
-    const targetW = targetStats.weapons || 0;
-    const targetH = targetStats.health || 0;
-    const targetC = targetStats.classAbility || 0;
-    const targetG = targetStats.grenade || 0;
-    const targetS = targetStats.superAbility || 0;
-    const targetM = targetStats.melee || 0;
+  const unreachable = ranges.filter(r => !r.targetReachable && r.target > 0);
 
-    const mwBonus = assumeMasterwork ? 10 : 0;
-
-    for (const h of topH) {
-      for (const a of topA) {
-        for (const c of topC) {
-          for (const l of topL) {
-            for (const ci of topCI) {
-              const pieces = [h, a, c, l, ci];
-              const exoticsCount = pieces.filter(it => it.tierTypeName === 'Exotic').length;
-              if (exoticsCount > 1) continue;
-
-              if (selectedExoticHash === 'none' && exoticsCount > 0) continue;
-              if (selectedExoticHash !== 'any' && selectedExoticHash !== 'none') {
-                const hasSelectedExotic = pieces.some(it => String(it.itemHash || it.id) === String(selectedExoticHash));
-                if (!hasSelectedExotic) continue;
-              }
-
-              const rawW = h.stats.weapons + a.stats.weapons + c.stats.weapons + l.stats.weapons + ci.stats.weapons + mwBonus;
-              const rawH = h.stats.health + a.stats.health + c.stats.health + l.stats.health + ci.stats.health + mwBonus;
-              const rawC = h.stats.classAbility + a.stats.classAbility + c.stats.classAbility + l.stats.classAbility + ci.stats.classAbility + mwBonus;
-              const rawG = h.stats.grenade + a.stats.grenade + c.stats.grenade + l.stats.grenade + ci.stats.grenade + mwBonus;
-              const rawS = h.stats.superAbility + a.stats.superAbility + c.stats.superAbility + l.stats.superAbility + ci.stats.superAbility + mwBonus;
-              const rawM = h.stats.melee + a.stats.melee + c.stats.melee + l.stats.melee + ci.stats.melee + mwBonus;
-
-              const defW = Math.max(0, targetW - rawW);
-              const defH = Math.max(0, targetH - rawH);
-              const defC = Math.max(0, targetC - rawC);
-              const defG = Math.max(0, targetG - rawG);
-              const defS = Math.max(0, targetS - rawS);
-              const defM = Math.max(0, targetM - rawM);
-
-              const actualArtificeCount = pieces.filter(it => it.isArtifice).length;
-              const totalArtificeSlots = assumeArtifice ? 5 : actualArtificeCount;
-
-              const modsNeeded = [];
-              let modsCount = 0;
-
-              const addModsForStat = (deficit, statName, shortName) => {
-                let remaining = deficit;
-                while (remaining > 5 && modsCount < 5) {
-                  modsNeeded.push({ stat: statName, short: shortName, value: 10, label: `+10 ${statName}` });
-                  remaining -= 10;
-                  modsCount++;
-                }
-                if (remaining > 0 && modsCount < 5) {
-                  modsNeeded.push({ stat: statName, short: shortName, value: 5, label: `+5 ${statName}` });
-                  remaining -= 5;
-                  modsCount++;
-                }
-                return Math.max(0, remaining);
-              };
-
-              let remW = addModsForStat(defW, 'Weapons', 'WEAP');
-              let remH = addModsForStat(defH, 'Health', 'HLTH');
-              let remC = addModsForStat(defC, 'Class', 'CLAS');
-              let remG = addModsForStat(defG, 'Grenade', 'GREN');
-              let remS = addModsForStat(defS, 'Super', 'SUPR');
-              let remM = addModsForStat(defM, 'Melee', 'MELE');
-
-              let artificeAssigned = 0;
-              const artificeMods = [];
-              const applyArtifice = (deficit, statName, shortName) => {
-                let rem = deficit;
-                while (rem > 0 && artificeAssigned < totalArtificeSlots) {
-                  artificeMods.push({ stat: statName, short: shortName, value: 3, label: `+3 ${statName}` });
-                  rem = Math.max(0, rem - 3);
-                  artificeAssigned++;
-                }
-                return rem;
-              };
-
-              remW = applyArtifice(remW, 'Weapons', 'WEAP');
-              remH = applyArtifice(remH, 'Health', 'HLTH');
-              remC = applyArtifice(remC, 'Class', 'CLAS');
-              remG = applyArtifice(remG, 'Grenade', 'GREN');
-              remS = applyArtifice(remS, 'Super', 'SUPR');
-              remM = applyArtifice(remM, 'Melee', 'MELE');
-
-              const allAssignedMods = [...modsNeeded, ...artificeMods];
-              const modWBonus = allAssignedMods.filter(m => m.short === 'WEAP').reduce((acc, m) => acc + m.value, 0);
-              const modHBonus = allAssignedMods.filter(m => m.short === 'HLTH').reduce((acc, m) => acc + m.value, 0);
-              const modCBonus = allAssignedMods.filter(m => m.short === 'CLAS').reduce((acc, m) => acc + m.value, 0);
-              const modGBonus = allAssignedMods.filter(m => m.short === 'GREN').reduce((acc, m) => acc + m.value, 0);
-              const modSBonus = allAssignedMods.filter(m => m.short === 'SUPR').reduce((acc, m) => acc + m.value, 0);
-              const modMBonus = allAssignedMods.filter(m => m.short === 'MELE').reduce((acc, m) => acc + m.value, 0);
-
-              const finalW = rawW + modWBonus;
-              const finalH = rawH + modHBonus;
-              const finalC = rawC + modCBonus;
-              const finalG = rawG + modGBonus;
-              const finalS = rawS + modSBonus;
-              const finalM = rawM + modMBonus;
-
-              const totalStatPoints = finalW + finalH + finalC + finalG + finalS + finalM;
-
-              const isPerfectMatch = remW === 0 && remH === 0 && remC === 0 && remG === 0 && remS === 0 && remM === 0 &&
-                finalW >= targetW && finalH >= targetH && finalC >= targetC && finalG >= targetG && finalS >= targetS && finalM >= targetM;
-
-              const overchargedCount = [finalW, finalH, finalC, finalG, finalS, finalM].filter(v => v >= 100).length;
-
-              results.push({
-                pieces,
-                stats: {
-                  weapons: finalW,
-                  health: finalH,
-                  classAbility: finalC,
-                  grenade: finalG,
-                  superAbility: finalS,
-                  melee: finalM
-                },
-                totalStatPoints,
-                overchargedCount,
-                modsNeeded: allAssignedMods,
-                isPerfectMatch
-              });
-            }
-          }
-        }
-      }
-    }
-
-    results.sort((a, b) => {
-      if (a.isPerfectMatch && !b.isPerfectMatch) return -1;
-      if (!a.isPerfectMatch && b.isPerfectMatch) return 1;
-      if (b.overchargedCount !== a.overchargedCount) return b.overchargedCount - a.overchargedCount;
-      return b.totalStatPoints - a.totalStatPoints;
-    });
-
-    return results.slice(0, 10);
-  }, [allOwnedArmor, targetStats, assumeMasterwork, assumeArtifice, selectedExoticHash, selectedSetFilter, activeChar]);
-
-  const handleApplyPreset = (preset) => {
-    setTargetStats(preset.stats);
+  const setStat = (key, value) => {
+    setTargetStats(prev => ({ ...prev, [key]: clampStat(value) }));
   };
 
-  const handleStatChange = (statKey, delta) => {
-    setTargetStats(prev => {
-      const current = prev[statKey] || 0;
-      const next = Math.max(0, Math.min(200, current + delta));
-      return { ...prev, [statKey]: next };
-    });
+  const handleStatChange = (key, delta) => {
+    setTargetStats(prev => ({ ...prev, [key]: clampStat((prev[key] || 0) + delta) }));
+  };
+
+  /** Snap a stat to the best value its current range allows. */
+  const maximiseStat = (key) => {
+    const range = rangeByKey[key];
+    if (range) setStat(key, range.max);
+  };
+
+  const resetTargets = () => {
+    setTargetStats({ weapons: 0, health: 0, classAbility: 0, grenade: 0, superAbility: 0, melee: 0 });
   };
 
   const handleEquipBuild = async (build) => {
     if (!build || isBuilding) return;
     setIsBuilding(true);
-    setBuildingStatus('Equipping build on Guardian...');
 
     try {
       for (const piece of build.pieces) {
         if (!piece.itemInstanceId) continue;
+        if (piece.location === 'equipped') continue;
+
+        // Bungie cannot equip straight out of the vault -- the piece has to
+        // reach the character's inventory first.
         if (piece.location === 'vault') {
-          await onTransferItem?.(piece, false);
-          await new Promise(r => setTimeout(r, 600));
+          setBuildingStatus(`Pulling ${piece.name} from vault...`);
+          const moved = await onTransferItem?.(piece, false);
+          if (moved === false) throw new Error(`Could not pull ${piece.name} from the vault`);
         }
-        await onEquipItem?.(piece.itemInstanceId);
-        await new Promise(r => setTimeout(r, 400));
+
+        setBuildingStatus(`Equipping ${piece.name}...`);
+        const equipped = await onEquipItem?.(piece.itemInstanceId);
+        if (equipped === false) throw new Error(`Could not equip ${piece.name}`);
       }
-      setBuildingStatus('Full Armour Build Equipped!');
+      setBuildingStatus('Build equipped.');
     } catch (err) {
-      setBuildingStatus('Error equipping build pieces');
+      setBuildingStatus(err.message || 'Could not finish equipping this build');
     } finally {
       setIsBuilding(false);
-      setTimeout(() => setBuildingStatus(null), 3000);
+      setTimeout(() => setBuildingStatus(null), 4000);
     }
   };
 
+  if (!activeChar) {
+    return (
+      <div className="p-8 rounded-2xl bg-[#121722] border border-[#1e2638] text-center">
+        <p className="text-sm text-slate-400">Sign in and pick a Guardian to use the optimizer.</p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 animate-fadeIn">
-      
-      {/* Clean Header & Options */}
+
+      {/* Header & assumptions */}
       <div className="bg-[#121722] border border-[#1e2638] rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <div>
@@ -378,11 +230,11 @@ export default function ArmourOptimizer({
               Armour Stat Optimizer
             </h2>
             <p className="text-xs text-slate-400 font-mono">
-              {allOwnedArmor.length} pieces scanned for {activeChar?.classType}
+              {totalPieces} pieces available for {activeChar.classType}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <label className="flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-[#0b0e14] px-2.5 py-1 rounded-lg border border-[#1e2638] cursor-pointer hover:border-slate-600">
               <input
                 type="checkbox"
@@ -390,7 +242,7 @@ export default function ArmourOptimizer({
                 onChange={(e) => setAssumeMasterwork(e.target.checked)}
                 className="accent-amber-500 w-3.5 h-3.5 rounded cursor-pointer"
               />
-              <span>Masterwork (+2)</span>
+              <span>Assume masterworked</span>
             </label>
 
             <label className="flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-[#0b0e14] px-2.5 py-1 rounded-lg border border-[#1e2638] cursor-pointer hover:border-slate-600">
@@ -400,18 +252,30 @@ export default function ArmourOptimizer({
                 onChange={(e) => setAssumeArtifice(e.target.checked)}
                 className="accent-amber-500 w-3.5 h-3.5 rounded cursor-pointer"
               />
-              <span>Artifice (+3)</span>
+              <span>Assume artifice</span>
             </label>
+
+            <button
+              onClick={resetTargets}
+              className="flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-[#0b0e14] px-2.5 py-1 rounded-lg border border-[#1e2638] hover:border-slate-600"
+            >
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
           </div>
         </div>
 
-        {/* Quick Presets Carousel */}
+        <p className="text-[11px] text-slate-500 font-mono leading-relaxed border-t border-[#1e2638] pt-2">
+          Ranges below show what each stat can still reach with your armour once the other five targets are met.
+          Mods are assumed, not chosen: five general slots (+10 major / +{MINOR_MOD_VALUE} minor, one per piece) plus +3 per artifice slot.
+          Fragments and armour set perks stack on top of these numbers.
+        </p>
+
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1 border-t border-[#1e2638]">
           <span className="text-[11px] font-mono text-slate-500 whitespace-nowrap mr-1">Presets:</span>
           {presets.map((pr, idx) => (
             <button
               key={idx}
-              onClick={() => handleApplyPreset(pr)}
+              onClick={() => setTargetStats(pr.stats)}
               className="px-2.5 py-1 rounded-lg bg-[#0b0e14] hover:bg-slate-800 border border-[#1e2638] hover:border-amber-500/40 text-slate-300 hover:text-white text-xs font-mono whitespace-nowrap transition-colors"
             >
               {pr.name}
@@ -420,143 +284,235 @@ export default function ArmourOptimizer({
         </div>
       </div>
 
-      {/* 6 Target Stat Steppers Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-        {statMeta.map(st => {
-          const currentVal = targetStats[st.key] || 0;
+      {/* Live stat targeting with achievable ranges */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+        {STAT_META.map(meta => {
+          const range = rangeByKey[meta.key] || { min: 0, max: 0, target: 0, targetReachable: false };
+          const target = targetStats[meta.key] || 0;
+          const reachable = range.targetReachable;
+          const span = Math.max(1, range.max - range.min);
+
           return (
-            <div 
-              key={st.key}
-              className="p-2.5 rounded-xl bg-[#121722] border border-[#1e2638] space-y-1.5"
+            <div
+              key={meta.key}
+              className={`p-3 rounded-xl bg-[#121722] border space-y-2 ${
+                reachable ? 'border-[#1e2638]' : 'border-red-500/40'
+              }`}
             >
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="font-bold text-slate-300">{st.short}</span>
-                <span className="text-white font-bold">{currentVal}</span>
+              <div className="flex items-baseline justify-between gap-2">
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-xs font-bold text-slate-200 font-heading tracking-wide">{meta.label}</span>
+                  <span className="text-[10px] font-mono text-slate-500">{meta.short}</span>
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className={`text-lg font-bold font-heading tabular-nums ${
+                    !reachable ? 'text-red-400' : target >= OVERCHARGE_THRESHOLD ? 'text-amber-400' : 'text-white'
+                  }`}>
+                    {target}
+                  </span>
+                  <span className="text-[10px] font-mono text-slate-500">T{Math.floor(target / STAT_TIER_SIZE)}</span>
+                </div>
               </div>
 
-              <div className="flex items-center justify-between gap-1 bg-[#0b0e14] border border-[#1e2638] rounded-lg p-0.5">
-                <button
-                  onClick={() => handleStatChange(st.key, -10)}
-                  disabled={currentVal <= 0}
-                  className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center text-xs disabled:opacity-30"
-                >
-                  -
-                </button>
-                <span className="text-[10px] font-mono text-slate-400">
-                  {currentVal >= 100 ? '⚡ 100+' : `${currentVal}`}
-                </span>
-                <button
-                  onClick={() => handleStatChange(st.key, 10)}
-                  disabled={currentVal >= 200}
-                  className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center text-xs disabled:opacity-30"
-                >
-                  +
-                </button>
+              {/* Achievable band: the shaded region is what this stat can still reach. */}
+              <div className="relative h-6">
+                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-[#0b0e14] border border-[#1e2638]" />
+                <div
+                  className={`absolute top-1/2 -translate-y-1/2 h-1.5 rounded-full ${reachable ? 'bg-amber-500/40' : 'bg-red-500/30'}`}
+                  style={{
+                    left: `${(range.min / STAT_MAX) * 100}%`,
+                    width: `${Math.max(0, (range.max - range.min) / STAT_MAX) * 100}%`
+                  }}
+                />
+                {/* Overcharge threshold marker */}
+                <div
+                  className="absolute top-1/2 -translate-y-1/2 h-3 w-px bg-slate-600"
+                  style={{ left: `${(OVERCHARGE_THRESHOLD / STAT_MAX) * 100}%` }}
+                  title={`Overcharge threshold (${OVERCHARGE_THRESHOLD})`}
+                />
+                <input
+                  type="range"
+                  min={0}
+                  max={STAT_MAX}
+                  step={MINOR_MOD_VALUE}
+                  value={target}
+                  onChange={(e) => setStat(meta.key, Number(e.target.value))}
+                  aria-label={`${meta.label} target`}
+                  className="absolute inset-0 w-full h-full appearance-none bg-transparent cursor-pointer accent-amber-500"
+                />
               </div>
+
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleStatChange(meta.key, -STAT_TIER_SIZE)}
+                    disabled={target <= 0}
+                    className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center text-xs disabled:opacity-30"
+                    aria-label={`Lower ${meta.label}`}
+                  >
+                    −
+                  </button>
+                  <button
+                    onClick={() => handleStatChange(meta.key, STAT_TIER_SIZE)}
+                    disabled={target >= STAT_MAX}
+                    className="w-6 h-6 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold flex items-center justify-center text-xs disabled:opacity-30"
+                    aria-label={`Raise ${meta.label}`}
+                  >
+                    +
+                  </button>
+                  <button
+                    onClick={() => maximiseStat(meta.key)}
+                    disabled={!anyFeasible || target === range.max}
+                    className="px-1.5 h-6 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-mono text-slate-300 disabled:opacity-30"
+                    title="Set to the highest value still possible"
+                  >
+                    Max
+                  </button>
+                </div>
+
+                <div className="text-[10px] font-mono text-right">
+                  {anyFeasible ? (
+                    <span className="text-slate-400">
+                      possible <span className="text-slate-200 font-bold tabular-nums">{range.min}</span>
+                      <span className="text-slate-600"> – </span>
+                      <span className="text-slate-200 font-bold tabular-nums">{range.max}</span>
+                    </span>
+                  ) : (
+                    <span className="text-red-400">no set fits these targets</span>
+                  )}
+                </div>
+              </div>
+
+              {!reachable && anyFeasible && (
+                <p className="text-[10px] font-mono text-red-400 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 flex-shrink-0" />
+                  {target > range.max
+                    ? `Out of reach — cap is ${range.max} with the other targets set.`
+                    : `Your armour floor here is ${range.min}.`}
+                </p>
+              )}
             </div>
           );
         })}
       </div>
 
-      {/* Exotic & Set Filter Row */}
+      {/* Pool constraints */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-[#121722] border border-[#1e2638] rounded-2xl p-3">
         <div className="space-y-1">
-          <label className="text-[11px] font-mono text-slate-400 block">Lock Exotic:</label>
+          <label className="text-[11px] font-mono text-slate-400 flex items-center gap-1.5">
+            {selectedExoticHash === 'any' ? <Unlock className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+            Exotic
+          </label>
           <select
             value={selectedExoticHash}
             onChange={(e) => setSelectedExoticHash(e.target.value)}
             className="w-full bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
           >
-            <option value="any">✨ Any Exotic (Best Stats)</option>
-            <option value="none">🛡️ No Exotic (Legendaries Only)</option>
+            <option value="any">Any exotic</option>
+            <option value="none">No exotic (legendaries only)</option>
             {availableExotics.map(ex => (
-              <option key={ex.itemHash || ex.id} value={ex.itemHash || ex.id}>
-                {ex.name} ({ex.itemTypeDisplayName || ex.slotType})
+              <option key={String(ex.itemHash ?? ex.id)} value={String(ex.itemHash ?? ex.id)}>
+                {ex.name} — {SLOT_LABELS[ex.slotType] || ex.slotType}
               </option>
             ))}
           </select>
         </div>
 
         <div className="space-y-1">
-          <label className="text-[11px] font-mono text-slate-400 block">Armour Set Preference:</label>
+          <label className="text-[11px] font-mono text-slate-400 block">Restrict pool</label>
           <select
             value={selectedSetFilter}
             onChange={(e) => setSelectedSetFilter(e.target.value)}
             className="w-full bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
           >
-            <option value="any">🌐 Any Sets (Highest Stats)</option>
-            <option value="artifice">💠 Artifice Sets</option>
-            <option value="iron_banner">⚔️ Iron Banner Sets</option>
-            <option value="raid">🏆 Raid & Dungeon Sets</option>
-            <option value="moments_of_triumph">🌟 Moments of Triumph Sets</option>
+            <option value="any">All armour</option>
+            <option value="artifice">Artifice only</option>
+            <option value="raid">Raid &amp; dungeon</option>
+            <option value="iron_banner">Iron Banner</option>
+            <option value="trials">Trials of Osiris</option>
           </select>
         </div>
       </div>
 
-      {/* Status Banner */}
+      {unreachable.length > 0 && anyFeasible && (
+        <div className="p-3 rounded-xl bg-red-500/5 border border-red-500/30 text-xs font-mono text-red-300 flex items-start gap-2">
+          <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <span>
+            {unreachable.map(r => STAT_META.find(m => m.key === r.key)?.label).join(', ')}
+            {unreachable.length === 1 ? ' is' : ' are'} out of reach together. Builds below are the closest your armour gets.
+          </span>
+        </div>
+      )}
+
       {buildingStatus && (
         <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono font-medium flex items-center gap-2">
-          <Zap className="w-4 h-4 text-amber-400 animate-spin" />
+          <Zap className={`w-4 h-4 text-amber-400 ${isBuilding ? 'animate-pulse' : ''}`} />
           <span>{buildingStatus}</span>
         </div>
       )}
 
-      {/* Optimized Builds List */}
+      {/* Results */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider font-heading">
-            Optimized Builds ({calculatedBuilds.length})
-          </h3>
-        </div>
+        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider font-heading px-1">
+          Builds ({builds.length})
+        </h3>
 
-        {calculatedBuilds.length === 0 ? (
+        {builds.length === 0 ? (
           <div className="p-8 rounded-2xl bg-[#121722] border border-[#1e2638] text-center space-y-1.5">
             <AlertCircle className="w-6 h-6 text-slate-500 mx-auto" />
-            <h4 className="text-sm font-bold text-slate-300 font-heading">No Valid Builds Found</h4>
+            <h4 className="text-sm font-bold text-slate-300 font-heading">Not enough armour</h4>
             <p className="text-xs text-slate-500">
-              Try reducing target stat requirements or setting Exotic to "Any Exotic".
+              The optimizer needs at least one piece in every slot. Pull some armour out of the vault and refresh.
             </p>
           </div>
         ) : (
           <div className="space-y-3">
-            {calculatedBuilds.map((build, bIdx) => (
+            {builds.map((build, bIdx) => (
               <div
                 key={bIdx}
-                className={`bg-[#121722] border rounded-2xl p-3.5 space-y-3 shadow-md ${
-                  build.isPerfectMatch 
-                    ? 'border-amber-500/40' 
-                    : 'border-[#1e2638]'
+                className={`bg-[#121722] border rounded-2xl p-3.5 space-y-3 ${
+                  build.meetsTargets ? 'border-amber-500/40' : 'border-[#1e2638]'
                 }`}
               >
-                {/* Build Header */}
                 <div className="flex items-center justify-between gap-2 flex-wrap border-b border-[#1e2638] pb-2">
                   <div className="flex items-center gap-2">
-                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-black font-heading font-bold text-xs tracking-wider">
-                      {build.totalStatPoints} Points
+                    <span className="px-2.5 py-0.5 rounded-lg bg-amber-500 text-black font-heading font-bold text-xs tracking-wider tabular-nums">
+                      {build.totalStatPoints}
                     </span>
-                    {build.isPerfectMatch && (
+                    {build.meetsTargets ? (
                       <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-mono font-bold flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Target Met
+                        <Check className="w-3 h-3" /> Targets met
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-mono">
+                        {build.shortfall} short
                       </span>
                     )}
                   </div>
 
-                  {/* 6 Stats Pills */}
                   <div className="flex items-center gap-1 flex-wrap text-[10px] font-mono">
-                    {statMeta.map(st => (
-                      <span
-                        key={st.key}
-                        className={`px-1.5 py-0.2 rounded bg-[#0b0e14] border border-slate-800 ${
-                          build.stats[st.key] >= 100 ? 'text-amber-400 font-bold border-amber-500/30' : 'text-slate-300'
-                        }`}
-                      >
-                        {st.short} {build.stats[st.key]}
-                      </span>
-                    ))}
+                    {STAT_META.map(meta => {
+                      const value = build.stats[meta.key];
+                      const hitTarget = value >= (targetStats[meta.key] || 0);
+                      return (
+                        <span
+                          key={meta.key}
+                          title={`${meta.label} ${value} (target ${targetStats[meta.key] || 0})`}
+                          className={`px-1.5 py-0.5 rounded border tabular-nums ${
+                            value >= OVERCHARGE_THRESHOLD
+                              ? 'text-amber-400 font-bold border-amber-500/30 bg-amber-500/5'
+                              : hitTarget
+                                ? 'text-slate-300 border-slate-800 bg-[#0b0e14]'
+                                : 'text-red-400 border-red-500/30 bg-red-500/5'
+                          }`}
+                        >
+                          {meta.short} {value}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
 
-                {/* 5 Armor Pieces Row */}
                 <div className="grid grid-cols-5 gap-2">
                   {build.pieces.map((piece, pIdx) => {
                     const tier = getTierInfo(piece.tierTypeName);
@@ -564,16 +520,21 @@ export default function ArmourOptimizer({
                       <div
                         key={pIdx}
                         onClick={() => onSelectArmor?.(piece)}
-                        className="p-1.5 rounded-xl bg-[#0b0e14] border border-[#1e2638] hover:border-amber-400 transition-all cursor-pointer space-y-1 group"
-                        title={piece.name}
+                        className={`p-1.5 rounded-xl bg-[#0b0e14] border hover:border-amber-400 transition-all cursor-pointer space-y-1 group ${tier.border}`}
+                        title={`${piece.name} (${piece.location})`}
                       >
                         <div className="relative w-full aspect-square rounded-lg bg-black/60 border border-white/10 overflow-hidden">
                           {piece.icon && (
                             <img src={piece.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                           )}
                           {piece.isArtifice && (
-                            <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 rounded-bl text-[7px] flex items-center justify-center font-bold text-white">
+                            <div className="absolute top-0 right-0 w-3 h-3 bg-indigo-500 rounded-bl text-[7px] flex items-center justify-center font-bold text-white" title="Artifice">
                               A
+                            </div>
+                          )}
+                          {piece.location === 'vault' && (
+                            <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[7px] text-slate-300 text-center font-mono">
+                              VAULT
                             </div>
                           )}
                         </div>
@@ -585,13 +546,18 @@ export default function ArmourOptimizer({
                   })}
                 </div>
 
-                {/* Footer: Required Mods & Equip Button */}
-                <div className="flex items-center justify-between gap-2 pt-1">
+                <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
                   <div className="flex items-center gap-1 flex-wrap">
-                    {build.modsNeeded.map((mod, mIdx) => (
+                    {build.mods.length === 0 ? (
+                      <span className="text-[10px] font-mono text-slate-500">No mods needed</span>
+                    ) : build.mods.map((mod, mIdx) => (
                       <span
                         key={mIdx}
-                        className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#0b0e14] border border-slate-800 text-slate-300"
+                        className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                          mod.kind === 'artifice'
+                            ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300'
+                            : 'bg-[#0b0e14] border-slate-800 text-slate-300'
+                        }`}
                       >
                         {mod.label}
                       </span>
@@ -604,16 +570,14 @@ export default function ArmourOptimizer({
                     className="px-4 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold font-heading text-xs transition-colors flex items-center gap-1.5 disabled:opacity-50 flex-shrink-0"
                   >
                     <Zap className="w-3.5 h-3.5" />
-                    <span>Equip Build</span>
+                    <span>Equip build</span>
                   </button>
                 </div>
-
               </div>
             ))}
           </div>
         )}
       </div>
-
     </div>
   );
 }

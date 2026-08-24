@@ -1,34 +1,31 @@
 import React from 'react';
 import { X, Shield, Crown, Sparkles, Award, Layers } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
+import { STAT_META, normaliseStats } from '../utils/armor-stats';
 import LongPressable from './LongPressable';
 
 export default function ArmorModal({ armor, onClose, onOpenInfo }) {
   if (!armor) return null;
   const tierInfo = getTierInfo(armor.tierTypeName);
 
-  // Frontiers 6-Stats: WEAP, HLTH, CLAS, GREN, SUPR, MELE
-  const statConfig = [
-    { key: 'weapons', legacyKey: 'mobility', label: 'Weapons', short: 'WEAP', color: 'text-sky-400', barBg: 'bg-sky-400' },
-    { key: 'health', legacyKey: 'resilience', label: 'Health', short: 'HLTH', color: 'text-emerald-400', barBg: 'bg-emerald-400' },
-    { key: 'classAbility', legacyKey: 'recovery', label: 'Class', short: 'CLAS', color: 'text-amber-400', barBg: 'bg-amber-400' },
-    { key: 'grenade', legacyKey: 'discipline', label: 'Grenade', short: 'GREN', color: 'text-indigo-400', barBg: 'bg-indigo-400' },
-    { key: 'superAbility', legacyKey: 'intellect', label: 'Super', short: 'SUPR', color: 'text-purple-400', barBg: 'bg-purple-400' },
-    { key: 'melee', legacyKey: 'strength', label: 'Melee', short: 'MELE', color: 'text-rose-400', barBg: 'bg-rose-400' }
-  ];
-
-  const getStatVal = (st) => {
-    if (armor.armorStats) {
-      return armor.armorStats[st.key] ?? armor.armorStats[st.legacyKey] ?? 0;
-    }
-    if (armor.stats) {
-      return armor.stats[st.label] ?? armor.stats[st.legacyKey] ?? armor.stats[st.key] ?? 0;
-    }
-    return 0;
+  // Bar colours per stat; the stat list itself comes from the shared model so
+  // this modal and the optimizer can never drift apart.
+  const STAT_COLOURS = {
+    weapons: { text: 'text-sky-400', bar: 'bg-sky-400' },
+    health: { text: 'text-emerald-400', bar: 'bg-emerald-400' },
+    classAbility: { text: 'text-amber-400', bar: 'bg-amber-400' },
+    grenade: { text: 'text-indigo-400', bar: 'bg-indigo-400' },
+    superAbility: { text: 'text-purple-400', bar: 'bg-purple-400' },
+    melee: { text: 'text-rose-400', bar: 'bg-rose-400' }
   };
 
-  const statTotal = armor.armorStats?.total || (armor.stats?.Total ?? armor.stats?.total) || 
-    statConfig.reduce((acc, st) => acc + getStatVal(st), 0);
+  const stats = normaliseStats(armor.armorStats || armor.statsList || armor.stats);
+  const statTotal = stats.total;
+
+  // Scale the bars against this piece's own best roll rather than a fixed
+  // ceiling -- a single piece's stat has no hard cap, and the old fixed 35
+  // made every good roll render as a full bar.
+  const barCeiling = Math.max(10, ...STAT_META.map(st => stats[st.key] || 0));
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
@@ -157,11 +154,11 @@ export default function ArmorModal({ armor, onClose, onOpenInfo }) {
             </div>
           )}
 
-          {/* Frontiers 6-Stats Sheet */}
+          {/* Armour stat sheet */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-bold text-slate-200 uppercase tracking-wider font-heading">
-                Armour Stat Distribution (Frontiers)
+                Armour Stat Distribution
               </h3>
               {statTotal > 0 && (
                 <span className="text-xs font-mono font-bold text-amber-400">
@@ -171,18 +168,19 @@ export default function ArmorModal({ armor, onClose, onOpenInfo }) {
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-[#0b0e14] border border-[#20293a] rounded-xl p-3.5">
-              {statConfig.map((st) => {
-                const val = getStatVal(st);
-                const pct = Math.min(100, Math.max(0, (val / 35) * 100));
+              {STAT_META.map((st) => {
+                const val = stats[st.key] || 0;
+                const colours = STAT_COLOURS[st.key];
+                const pct = Math.min(100, Math.max(0, (val / barCeiling) * 100));
                 return (
                   <div key={st.key} className="space-y-1 text-xs">
                     <div className="flex justify-between font-mono">
-                      <span className={`font-bold ${st.color}`}>{st.short} • {st.label}</span>
-                      <span className="text-white font-bold">{val}</span>
+                      <span className={`font-bold ${colours.text}`}>{st.short} • {st.label}</span>
+                      <span className="text-white font-bold tabular-nums">{val}</span>
                     </div>
                     <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full ${st.barBg}`}
+                      <div
+                        className={`h-full rounded-full ${colours.bar}`}
                         style={{ width: `${pct}%` }}
                       />
                     </div>

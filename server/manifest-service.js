@@ -752,13 +752,16 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
         }
       }
 
+      // Armour stats are stored under their current names. Definitions from an
+      // older manifest snapshot still use the pre-Edge-of-Fate names, so both
+      // are accepted and folded onto the same canonical labels.
       const stats = {};
       let totalStats = 0;
       if (item.stats?.stats) {
         for (const [sHash, sVal] of Object.entries(item.stats.stats)) {
-          const sDef = statDefs[sHash];
-          if (sDef && sDef.name && ['Mobility', 'Resilience', 'Recovery', 'Discipline', 'Intellect', 'Strength'].includes(sDef.name)) {
-            stats[sDef.name] = sVal.value;
+          const label = ARMOR_STAT_LABELS[statDefs[sHash]?.name];
+          if (label) {
+            stats[label] = sVal.value;
             totalStats += sVal.value;
           }
         }
@@ -914,6 +917,20 @@ function getArmorSlotName(bucketHash) {
     default: return null;
   }
 }
+
+/**
+ * Armour stat display name -> canonical label. Both the current names and the
+ * ones they replaced map onto the same entry so a manifest built before or
+ * after the change produces identical output.
+ */
+const ARMOR_STAT_LABELS = {
+  Weapons: 'Weapons',      Mobility: 'Weapons',
+  Health: 'Health',        Resilience: 'Health',
+  Class: 'Class',          Recovery: 'Class',
+  Grenade: 'Grenade',      Discipline: 'Grenade',
+  Super: 'Super',          Intellect: 'Super',
+  Melee: 'Melee',          Strength: 'Melee'
+};
 
 function getClassTypeName(classType) {
   switch (classType) {

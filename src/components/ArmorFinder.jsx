@@ -13,8 +13,8 @@ import {
   Swords,
   Flame
 } from 'lucide-react';
-import { getTierInfo } from '../utils/destiny-helpers';
-import { searchArmorClient } from '../utils/client-manifest';
+import { getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
+import { searchArmorClient, getArmorSourceCategories } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
 
 export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
@@ -32,14 +32,16 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
   const [selectedSetCategory, setSelectedSetCategory] = useState('All');
   const [artificeOnly, setArtificeOnly] = useState(false);
 
-  const setCategories = [
-    'All',
-    'Moments of Triumph & Events',
-    'Raids & Dungeons',
-    'Ritual & Pinnacle',
-    'Episodes & Seasons',
-    'Exotics'
-  ];
+  // Categories come from the manifest rather than a hardcoded list: the old
+  // list named sets that no source category ever matched, so every option
+  // returned an empty grid.
+  const [setCategories, setSetCategories] = useState(['All']);
+
+  useEffect(() => {
+    getArmorSourceCategories()
+      .then(cats => setSetCategories(['All', ...cats]))
+      .catch(() => setSetCategories(['All']));
+  }, []);
 
   useEffect(() => {
     fetchArmor();
@@ -53,7 +55,7 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
         classType: selectedClasses.length === 1 ? selectedClasses[0] : 'All',
         slot: selectedSlots.length === 1 ? selectedSlots[0] : 'All',
         tier: selectedTiers.length === 1 ? selectedTiers[0] : 'All',
-        setCategory: selectedSetCategory,
+        sourceCategory: selectedSetCategory,
         artificeOnly,
         page,
         limit: 48
@@ -98,7 +100,7 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input
             type="text"
-            placeholder="Search armor, sets, or exotic perks (e.g. Moments of Triumph, Exegesis, High-Altitude, Celestial Nighthawk)..."
+            placeholder="Search armour by name, set, source or exotic perk..."
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             className="w-full pl-10 pr-4 py-2.5 bg-[#0b0e14] border border-[#20293a] rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/40 font-sans"
@@ -128,11 +130,7 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
                   : 'bg-[#0b0e14] text-slate-400 border-[#20293a] hover:text-slate-200'
               }`}
             >
-              {cat === 'Moments of Triumph & Events' ? '🌟 Moments of Triumph / Events' :
-               cat === 'Raids & Dungeons' ? '🏆 Raids & Dungeons' :
-               cat === 'Ritual & Pinnacle' ? '⚔️ Ritual / Pinnacle' :
-               cat === 'Episodes & Seasons' ? '🌌 Episodes & Seasons' :
-               cat === 'Exotics' ? '🟡 Exotics' : 'All Sets'}
+              {cat === 'All' ? 'All Sets' : `${getSourceCategoryBadge(cat).icon} ${cat}`}
             </button>
           ))}
 

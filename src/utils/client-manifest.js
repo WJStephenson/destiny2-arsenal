@@ -233,7 +233,7 @@ export async function searchArmorClient(filters = {}) {
     results = results.filter(a => 
       a.name.toLowerCase().includes(q) || 
       (a.setName && a.setName.toLowerCase().includes(q)) ||
-      (a.setCategory && a.setCategory.toLowerCase().includes(q)) ||
+      (a.sourceCategory && a.sourceCategory.toLowerCase().includes(q)) ||
       (a.setIntrinsicPerk && a.setIntrinsicPerk.toLowerCase().includes(q)) ||
       (a.sourceString && a.sourceString.toLowerCase().includes(q)) ||
       (a.exoticPerk?.name && a.exoticPerk.name.toLowerCase().includes(q))
@@ -252,8 +252,11 @@ export async function searchArmorClient(filters = {}) {
     results = results.filter(a => a.tierTypeName === filters.tier);
   }
 
-  if (filters.setCategory && filters.setCategory !== 'All') {
-    results = results.filter(a => a.setCategory === filters.setCategory);
+  // Armour is tagged with sourceCategory by the manifest indexer. An earlier
+  // build filtered on a `setCategory` field that is never populated, so every
+  // category returned nothing.
+  if (filters.sourceCategory && filters.sourceCategory !== 'All') {
+    results = results.filter(a => a.sourceCategory === filters.sourceCategory);
   }
 
   if (filters.setName && filters.setName !== 'All') {
@@ -345,4 +348,14 @@ export function getClientItemByName(name) {
   if (armorByName.has(clean)) return armorByName.get(clean);
   if (perksByName.has(clean)) return perksByName.get(clean);
   return null;
+}
+
+/**
+ * Distinct armour source categories present in the manifest, so the UI offers
+ * exactly the filters that can return something.
+ */
+export async function getArmorSourceCategories() {
+  await initClientManifest();
+  if (!cachedArmor) return [];
+  return Array.from(new Set(cachedArmor.map(a => a.sourceCategory).filter(Boolean))).sort();
 }
