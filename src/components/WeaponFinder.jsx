@@ -25,7 +25,7 @@ import {
   Compass,
   Info
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery, withoutDuplicateEnhancedPerks } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery, withoutDuplicateEnhancedPerks, rollColumns, getAmmoInfo, getSlotInfo } from '../utils/destiny-helpers';
 import { searchWeaponsClient, getSuggestionsClient, searchPerksClient } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
@@ -804,6 +804,8 @@ export default function WeaponFinder({
             const tierInfo = getTierInfo(w.tierTypeName);
             const damageInfo = getDamageInfo(w.damageType);
             const sourceBadge = getSourceCategoryBadge(w.sourceCategory);
+            const ammoInfo = getAmmoInfo(w.ammoType);
+            const slotInfo = getSlotInfo(w.slot);
             const isCompared = compareList.some(item => item.id === w.id);
 
             const matchingPerks = selectedPerks.length > 0 
@@ -848,6 +850,18 @@ export default function WeaponFinder({
                         <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded ${damageInfo.bg} ${damageInfo.text}`}>
                           {w.damageType}
                         </span>
+                        {/* Slot and ammo are separate facts from damage type --
+                            a Void sniper is an Energy-slot Special weapon. */}
+                        {slotInfo && (
+                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${slotInfo.bg} ${slotInfo.text} ${slotInfo.border}`}>
+                            {slotInfo.name}
+                          </span>
+                        )}
+                        {ammoInfo && (
+                          <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded border ${ammoInfo.bg} ${ammoInfo.text} ${ammoInfo.border}`}>
+                            {ammoInfo.name}
+                          </span>
+                        )}
                         {w.isCraftable && (
                           <span className="text-[10px] font-mono px-1 py-0.2 rounded bg-red-500/20 text-red-300 border border-red-500/30">
                             Craft
@@ -922,7 +936,7 @@ export default function WeaponFinder({
                       which socket it sits in. */}
                   {matchingPerks.length > 0 && (
                     <div className="flex gap-1.5 items-start">
-                      {w.socketColumns
+                      {rollColumns(w.socketColumns)
                         .map(col => ({
                           type: col.type,
                           perks: withoutDuplicateEnhancedPerks(col.perks || []).filter(p =>
