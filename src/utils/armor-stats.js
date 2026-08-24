@@ -186,24 +186,39 @@ function buildCoverTable(maxMajor) {
  * stat (they set the achievable minimum), the best all-rounders, and anything
  * currently equipped.
  */
-export function shortlistSlot(pieces, cap = 12) {
+export function shortlistSlot(pieces, cap = 12, priorityGroups = null) {
   if (pieces.length <= cap) return pieces.slice();
 
   const keep = new Set();
   const add = (p) => { if (p && keep.size < cap) keep.add(p); };
 
-  const byStat = STAT_KEYS.map(key => [...pieces].sort((a, b) => (b.stats[key] || 0) - (a.stats[key] || 0)));
-
   // Round-robin across the six stats rather than exhausting one stat at a
   // time, otherwise a tight cap would only ever keep the extremes of the first
   // stat or two and the reported ranges would lean on stat order.
-  byStat.forEach(sorted => add(sorted[0]));                      // highest of each stat
-  byStat.forEach(sorted => add(sorted[sorted.length - 1]));      // lowest of each stat -> sets the floor
-  pieces.forEach(p => { if (p.location === 'equipped') add(p); });
-  byStat.forEach(sorted => add(sorted[1]));                      // runner-up of each stat
+  const spread = (list, budget) => {
+    if (list.length === 0) return;
+    const limit = Math.min(keep.size + budget, cap);
+    const bounded = (p) => { if (p && keep.size < limit) keep.add(p); };
+    const byStat = STAT_KEYS.map(key => [...list].sort((a, b) => (b.stats[key] || 0) - (a.stats[key] || 0)));
+    byStat.forEach(sorted => bounded(sorted[0]));                   // highest of each stat
+    byStat.forEach(sorted => bounded(sorted[sorted.length - 1]));   // lowest of each stat -> the floor
+    list.forEach(p => { if (p.location === 'equipped') bounded(p); });
+    byStat.forEach(sorted => bounded(sorted[1]));                   // runner-up of each stat
+    [...list].sort((a, b) => (b.stats.total || 0) - (a.stats.total || 0)).forEach(bounded);
+  };
 
-  const byTotal = [...pieces].sort((a, b) => (b.stats.total || 0) - (a.stats.total || 0));
-  byTotal.forEach(add);
+  const groups = (priorityGroups || []).filter(Boolean);
+  if (groups.length > 0) {
+    // A required set is useless if the shortlist happens to keep none of its
+    // pieces, so each one gets its own share of the budget before the general
+    // pool competes for the rest. Sharing a single pot between two required
+    // sets would let the better-stocked set crowd the other one out.
+    const share = Math.max(1, Math.floor(cap / (groups.length + 1)));
+    groups.forEach(inGroup => spread(pieces.filter(inGroup), share));
+    spread(pieces.filter(p => !groups.some(inGroup => inGroup(p))), cap);
+  } else {
+    spread(pieces, cap);
+  }
 
   return Array.from(keep);
 }
@@ -220,6 +235,66 @@ export function shortlistSlot(pieces, cap = 12) {
  */
 export const DEFAULT_SLOT_CAPS = { helmet: 12, gauntlets: 12, chest: 12, legs: 12, classItem: 6 };
 
+/**
+ * Combination budgets, in combos.
+ *
+ * Exhaustive search is not on the table for a large vault: five slots at a
+ * hundred candidates each is 1e10 combinations. Pareto reduction does not help
+ * either -- armour rolls against a fixed stat budget, so a lower roll in one
+ * stat is always paid for by a higher one elsewhere and essentially no piece is
+ * dominated in six dimensions (measured: zero dominating pairs in a realistic
+ * hundred-piece pool).
+ *
+ * So the search is bounded by time instead, and the caps are chosen to fit.
+ * Most players' per-class, per-slot pools are small enough that DEEP covers
+ * them completely -- `truncated` says whether that happened.
+ */
+export const COMBO_BUDGET = {
+  /** Main thread, has to keep up with a dragged slider. */
+  INSTANT: 250000,
+  /** Worker, runs while the instant answer is already on screen. */
+  DEEP: 3000000
+};
+
+/**
+ * Largest per-slot caps whose product fits the budget.
+ *
+ * Starts from searching every piece and only trims the slot that is currently
+ * costing the most, so the pools that fit whole stay whole.
+ */
+export function chooseSlotCaps(pools, budget = COMBO_BUDGET.INSTANT) {
+  const caps = {};
+  ARMOR_SLOTS.forEach(slot => { caps[slot] = Math.max(1, (pools[slot] || []).length); });
+
+  const product = () => ARMOR_SLOTS.reduce((acc, slot) => acc * caps[slot], 1);
+
+  // Trimming the biggest slot first keeps the cut as even as possible, which
+  // loses less than repeatedly shaving one slot down to nothing.
+  let guard = 0;
+  while (product() > budget && guard++ < 10000) {
+    let biggest = ARMOR_SLOTS[0];
+    ARMOR_SLOTS.forEach(slot => { if (caps[slot] > caps[biggest]) biggest = slot; });
+    if (caps[biggest] <= 1) break;
+    caps[biggest]--;
+  }
+
+  return caps;
+}
+
+/**
+ * Which armour set a piece belongs to, for set-bonus targeting.
+ *
+ * Deliberately keyed on the set hash alone. Older bundled data carries a
+ * `setName` that is really an acquisition label -- "Xur", "Bright Engrams",
+ * "Iron Banner Set" -- and grouping by that would present sources as though
+ * they granted set bonuses. A piece with no set hash belongs to no set, which
+ * is the honest answer until the manifest is synced with the set table.
+ */
+export function setKey(piece) {
+  const hash = piece?.setHash;
+  return hash === null || hash === undefined ? null : String(hash);
+}
+
 /** Stable identity for a specific armour instance the player pinned or vetoed. */
 export function pieceKey(piece) {
   return String(piece?.itemInstanceId ?? piece?.itemHash ?? piece?.id ?? '');
@@ -234,12 +309,22 @@ export function buildComboIndex(pools, {
   maxCombos = 200000,
   exoticHash = 'any',
   lockedPieces = [],
-  excludedPieces = []
+  excludedPieces = [],
+  // [{ key, count }] -- every build must wear at least `count` pieces of each
+  // listed set, which is how set bonuses are actually earned. Two 2-piece
+  // bonuses fit alongside each other in five slots; a 4-piece leaves room for
+  // nothing else.
+  requiredSets = []
 } = {}) {
   const wantsExotic = exoticHash !== 'any' && exoticHash !== 'none';
   const matchesLocked = (p) => String(p.itemHash ?? p.id) === String(exoticHash);
   const locked = new Set(lockedPieces);
   const excluded = new Set(excludedPieces);
+  const setRequirements = (Array.isArray(requiredSets) ? requiredSets : [requiredSets])
+    .filter(r => r && r.key && r.count > 0);
+  const needsSet = setRequirements.length > 0;
+  // Reused across combinations to keep the assembly loop allocation-free.
+  const setTally = new Array(setRequirements.length).fill(0);
 
   const effectivePools = ARMOR_SLOTS.map(slot => {
     let pool = pools[slot] || [];
@@ -259,7 +344,11 @@ export function buildComboIndex(pools, {
     return pool;
   });
 
-  const shortlists = effectivePools.map((pool, i) => shortlistSlot(pool, slotCaps[ARMOR_SLOTS[i]] ?? 12));
+  const shortlists = effectivePools.map((pool, i) => shortlistSlot(
+    pool,
+    slotCaps[ARMOR_SLOTS[i]] ?? 12,
+    setRequirements.map(req => (p) => setKey(p) === req.key)
+  ));
 
   // Report how much of each pool was actually searched. The shortlists always
   // contain the highest and lowest roll of every stat, so the range endpoints
@@ -292,6 +381,7 @@ export function buildComboIndex(pools, {
     let artificeCount = 0;
     let mwCount = 0;
     let hasLockedExotic = false;
+    for (let r = 0; r < setTally.length; r++) setTally[r] = 0;
     const base = written * STAT_COUNT;
 
     for (let s = 0; s < ARMOR_SLOT_COUNT; s++) {
@@ -299,6 +389,12 @@ export function buildComboIndex(pools, {
       picks[written * ARMOR_SLOT_COUNT + s] = cursor[s];
       if (piece.tierTypeName === 'Exotic') exotics++;
       if (wantsExotic && String(piece.itemHash ?? piece.id) === String(exoticHash)) hasLockedExotic = true;
+      if (needsSet) {
+        const key = setKey(piece);
+        for (let r = 0; r < setRequirements.length; r++) {
+          if (setRequirements[r].key === key) { setTally[r]++; break; }
+        }
+      }
       if (piece.isArtifice) artificeCount++;
       if (piece.isMasterwork) mwCount++;
       for (let k = 0; k < STAT_COUNT; k++) {
@@ -312,7 +408,14 @@ export function buildComboIndex(pools, {
       && !(exoticHash === 'none' && exotics > 0)
       && !(wantsExotic && !hasLockedExotic);
 
-    if (exoticOk) {
+    // A set bonus needs its pieces worn together, so this is a constraint on
+    // the whole combination -- it cannot be applied by filtering the pools.
+    let setOk = true;
+    for (let r = 0; r < setRequirements.length && setOk; r++) {
+      if (setTally[r] < setRequirements[r].count) setOk = false;
+    }
+
+    if (exoticOk && setOk) {
       artifice[written] = artificeCount;
       masterworked[written] = mwCount;
       written++;

@@ -1,6 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Zap, Check, RotateCcw, AlertCircle, Lock, Unlock, Ban, X } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
+import { useDeepArmorSearch } from '../utils/useDeepArmorSearch';
 import {
   STAT_KEYS,
   STAT_META,
@@ -12,6 +13,9 @@ import {
   ARMOR_SLOTS,
   normaliseStats,
   buildComboIndex,
+  setKey,
+  chooseSlotCaps,
+  COMBO_BUDGET,
   pieceKey,
   computeStatRanges,
   rankBuilds,
@@ -37,7 +41,12 @@ export default function ArmourOptimizer({
   const [assumeMasterwork, setAssumeMasterwork] = useState(true);
   const [assumeArtifice, setAssumeArtifice] = useState(false);
   const [selectedExoticHash, setSelectedExoticHash] = useState('any');
-  const [selectedSetFilter, setSelectedSetFilter] = useState('any');
+  // Armour set bonuses are earned by wearing 2 or 4 pieces of the same set.
+  // Five slots means two 2-piece bonuses fit together; a 4-piece does not
+  // leave room for a second set.
+  const [selectedSetKey, setSelectedSetKey] = useState('any');
+  const [requiredSetCount, setRequiredSetCount] = useState(2);
+  const [secondSetKey, setSecondSetKey] = useState('any');
   // Instance keys the player pinned into every build, or vetoed entirely.
   const [lockedPieces, setLockedPieces] = useState([]);
   const [excludedPieces, setExcludedPieces] = useState([]);
@@ -82,21 +91,56 @@ export default function ArmourOptimizer({
    * set metadata that only exists for the bundled manifest entries.
    * Exotics are always kept -- they are never part of a set.
    */
-  const filteredPools = useMemo(() => {
-    if (selectedSetFilter === 'any') return armorPools;
+  /**
+   * Every set the player could actually wear a bonus from, with the pieces
+   * that back it. A set only appears once it could reach its smaller bonus.
+   */
+  const availableSets = useMemo(() => {
+    const sets = new Map();
+    ARMOR_SLOTS.forEach(slot => armorPools[slot].forEach(piece => {
+      const key = setKey(piece);
+      if (!key) return;
+      if (!sets.has(key)) {
+        sets.set(key, { key, name: piece.setName || 'Unnamed set', bonuses: piece.setBonuses || [], slots: new Set(), pieces: 0 });
+      }
+      const entry = sets.get(key);
+      entry.pieces++;
+      entry.slots.add(slot);
+      if (!entry.bonuses.length && piece.setBonuses?.length) entry.bonuses = piece.setBonuses;
+    }));
 
-    const matches = (it) => {
-      if (it.tierTypeName === 'Exotic') return true;
-      if (selectedSetFilter === 'artifice') return !!it.isArtifice;
-      const haystack = `${it.sourceCategory || ''} ${it.sourceString || ''} ${it.name || ''}`.toLowerCase();
-      if (selectedSetFilter === 'iron_banner') return haystack.includes('iron banner') || haystack.includes('iron ');
-      if (selectedSetFilter === 'raid') return haystack.includes('raid') || haystack.includes('dungeon');
-      if (selectedSetFilter === 'trials') return haystack.includes('trials');
-      return true;
-    };
+    return Array.from(sets.values())
+      // A bonus needs distinct slots, not just copies of one piece.
+      .filter(entry => entry.slots.size >= 2)
+      .sort((a, b) => b.slots.size - a.slots.size || a.name.localeCompare(b.name));
+  }, [armorPools]);
 
-    return Object.fromEntries(ARMOR_SLOTS.map(s => [s, armorPools[s].filter(matches)]));
-  }, [armorPools, selectedSetFilter]);
+  const activeSet = availableSets.find(entry => entry.key === selectedSetKey) || null;
+
+  // A second bonus only fits behind a 2-piece first one, and never the same set.
+  const secondSetAllowed = !!activeSet && requiredSetCount === 2;
+  const secondSetChoices = secondSetAllowed
+    ? availableSets.filter(entry => entry.key !== activeSet.key)
+    : [];
+  const secondSet = secondSetAllowed
+    ? secondSetChoices.find(entry => entry.key === secondSetKey) || null
+    : null;
+
+  const requiredSets = useMemo(() => {
+    const list = [];
+    if (activeSet) list.push({ key: activeSet.key, count: requiredSetCount });
+    if (secondSet) list.push({ key: secondSet.key, count: 2 });
+    return list;
+  }, [activeSet, requiredSetCount, secondSet]);
+
+  // Drop a stale second pick rather than silently ignoring it.
+  useEffect(() => {
+    if (secondSetKey !== 'any' && !secondSetAllowed) setSecondSetKey('any');
+  }, [secondSetAllowed, secondSetKey]);
+
+  // The pool itself is never narrowed for a set: a set bonus is a constraint on
+  // the finished build, and the other slots stay free to roll whatever suits.
+  const filteredPools = armorPools;
 
   const totalPieces = useMemo(
     () => ARMOR_SLOTS.reduce((acc, s) => acc + filteredPools[s].length, 0),
@@ -119,13 +163,23 @@ export default function ArmourOptimizer({
    * is pinned, so it survives every target tweak. That is what keeps the
    * ranges below responsive while sliders move.
    */
-  const comboIndex = useMemo(
-    () => buildComboIndex(filteredPools, {
+  const indexOptions = useMemo(
+    () => ({
       exoticHash: selectedExoticHash,
       lockedPieces,
-      excludedPieces
+      excludedPieces,
+      requiredSets
     }),
-    [filteredPools, selectedExoticHash, lockedPieces, excludedPieces]
+    [selectedExoticHash, lockedPieces, excludedPieces, requiredSets]
+  );
+
+  const comboIndex = useMemo(
+    () => buildComboIndex(filteredPools, {
+      ...indexOptions,
+      slotCaps: chooseSlotCaps(filteredPools, COMBO_BUDGET.INSTANT),
+      maxCombos: COMBO_BUDGET.INSTANT
+    }),
+    [filteredPools, indexOptions]
   );
 
   const modOptions = useMemo(
@@ -137,19 +191,35 @@ export default function ArmourOptimizer({
    * For each stat: the lowest and highest value still reachable while the
    * other five targets hold. Recomputed on every edit.
    */
-  const { ranges, anyFeasible } = useMemo(
+  const instant = useMemo(
     () => computeStatRanges(comboIndex, targetStats, modOptions),
     [comboIndex, targetStats, modOptions]
   );
 
+  const instantBuilds = useMemo(
+    () => rankBuilds(comboIndex, targetStats, modOptions, 10),
+    [comboIndex, targetStats, modOptions]
+  );
+
+  /**
+   * A far larger search runs in a worker against the same pools. Until it
+   * answers -- and whenever the player moves a target faster than it can keep
+   * up -- the instant answer above is what is on screen.
+   */
+  const deep = useDeepArmorSearch({
+    pools: filteredPools,
+    indexOptions,
+    targets: targetStats,
+    modOptions
+  });
+
+  const { ranges, anyFeasible } = deep.result || instant;
+  const builds = deep.result ? deep.result.builds : instantBuilds;
+  const searchDepth = deep.result ? 'deep' : 'instant';
+
   const rangeByKey = useMemo(
     () => Object.fromEntries(ranges.map(r => [r.key, r])),
     [ranges]
-  );
-
-  const builds = useMemo(
-    () => rankBuilds(comboIndex, targetStats, modOptions, 10),
-    [comboIndex, targetStats, modOptions]
   );
 
   const togglePiece = (setter, other, key) => {
@@ -175,8 +245,11 @@ export default function ArmourOptimizer({
     ...excludedPieces.map(k => ({ key: k, kind: 'exclude', piece: piecesByKey.get(k) }))
   ];
 
-  const searchedPerSlot = (comboIndex.coverage || []).reduce((acc, c) => acc + c.considered, 0);
-  const availablePerSlot = (comboIndex.coverage || []).reduce((acc, c) => acc + c.available, 0);
+  // Report on whichever search the numbers on screen actually came from.
+  const activeCoverage = (deep.result && deep.coverage) ? deep.coverage : comboIndex;
+  const searchedPieces = (activeCoverage.coverage || []).reduce((acc, c) => acc + c.considered, 0);
+  const availablePieces = (activeCoverage.coverage || []).reduce((acc, c) => acc + c.available, 0);
+  const searchTruncated = !!activeCoverage.truncated;
 
   const unreachable = ranges.filter(r => !r.targetReachable && r.target > 0);
 
@@ -285,12 +358,16 @@ export default function ArmourOptimizer({
           Ranges below show what each stat can still reach with your armour once the other five targets are met.
           Mods are assumed, not chosen: five general slots (+10 major / +{MINOR_MOD_VALUE} minor, one per piece) plus +3 per artifice slot.
           Fragments and armour set perks stack on top of these numbers.
-          {comboIndex.truncated && (
+          {' '}
+          {searchTruncated ? (
             <>
-              {' '}Deep vault: searching the {searchedPerSlot} most useful pieces per slot
-              (of {availablePerSlot}). The highest and lowest roll of every stat is always included,
-              so the range ends are exact, but an awkward mid-range combination can be missed.
+              Searching {searchedPieces} of your {availablePieces} pieces
+              {searchDepth === 'instant' && deep.available ? ' while a deeper pass runs' : ''}.
+              Every stat's highest and lowest roll is always included, so the range ends are
+              exact; an awkward mid-range combination can be missed.
             </>
+          ) : (
+            <>Searching all {availablePieces} of your pieces.</>
           )}
         </p>
 
@@ -443,18 +520,99 @@ export default function ArmourOptimizer({
         </div>
 
         <div className="space-y-1">
-          <label className="text-[11px] font-mono text-slate-400 block">Restrict pool</label>
-          <select
-            value={selectedSetFilter}
-            onChange={(e) => setSelectedSetFilter(e.target.value)}
-            className="w-full bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
-          >
-            <option value="any">All armour</option>
-            <option value="artifice">Artifice only</option>
-            <option value="raid">Raid &amp; dungeon</option>
-            <option value="iron_banner">Iron Banner</option>
-            <option value="trials">Trials of Osiris</option>
-          </select>
+          <label className="text-[11px] font-mono text-slate-400 block">Set bonus</label>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={selectedSetKey}
+              onChange={(e) => setSelectedSetKey(e.target.value)}
+              className="flex-1 min-w-0 bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
+            >
+              <option value="any">No set bonus</option>
+              {availableSets.map(entry => (
+                <option key={entry.key} value={entry.key}>
+                  {entry.name} ({entry.slots.size} slots)
+                </option>
+              ))}
+            </select>
+
+            {/* 4-piece is only offered once four different slots can supply it. */}
+            <div className="flex items-center bg-[#0b0e14] border border-[#1e2638] rounded-xl p-0.5 flex-shrink-0">
+              {[2, 4].map(count => {
+                const possible = !activeSet || activeSet.slots.size >= count;
+                return (
+                  <button
+                    key={count}
+                    onClick={() => setRequiredSetCount(count)}
+                    disabled={!activeSet || !possible}
+                    title={possible ? `Require ${count} pieces` : `You only have ${activeSet.slots.size} slots of this set`}
+                    className={`px-2 py-1 rounded-lg text-xs font-mono transition-colors ${
+                      activeSet && requiredSetCount === count
+                        ? 'bg-amber-500 text-black font-bold'
+                        : 'text-slate-400 hover:text-slate-200 disabled:opacity-30'
+                    }`}
+                  >
+                    {count}pc
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* A 2-piece leaves three slots free, so a second 2-piece bonus fits
+              alongside it. A 4-piece does not. */}
+          {secondSetAllowed && (
+            <select
+              value={secondSetKey}
+              onChange={(e) => setSecondSetKey(e.target.value)}
+              className="w-full bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
+            >
+              <option value="any">+ add a second 2pc bonus</option>
+              {secondSetChoices.map(entry => (
+                <option key={entry.key} value={entry.key}>
+                  {entry.name} ({entry.slots.size} slots)
+                </option>
+              ))}
+            </select>
+          )}
+
+          {[
+            activeSet ? { set: activeSet, count: requiredSetCount } : null,
+            secondSet ? { set: secondSet, count: 2 } : null
+          ].filter(Boolean).map(({ set, count }) => (
+            <ul key={set.key} className="space-y-0.5 pt-0.5">
+              <li className="text-[10px] font-mono text-slate-400 font-bold">{set.name}</li>
+              {set.bonuses.length === 0 ? (
+                <li className="text-[10px] font-mono text-slate-500">
+                  Wearing {count} pieces. Bonus details need a manifest sync.
+                </li>
+              ) : set.bonuses.map(bonus => (
+                <li
+                  key={bonus.count}
+                  className={`text-[10px] font-mono leading-snug pl-2 ${
+                    count >= bonus.count ? 'text-amber-300' : 'text-slate-500'
+                  }`}
+                >
+                  <span className="font-bold">{bonus.count}pc</span> {bonus.name}
+                  {bonus.description ? ` — ${bonus.description}` : ''}
+                </li>
+              ))}
+            </ul>
+          ))}
+
+          {requiredSets.length > 0 && (
+            <p className="text-[10px] font-mono text-slate-500">
+              {requiredSets.reduce((acc, r) => acc + r.count, 0)} of 5 slots committed
+              {requiredSets.reduce((acc, r) => acc + r.count, 0) < ARMOR_SLOTS.length
+                ? `, ${ARMOR_SLOTS.length - requiredSets.reduce((acc, r) => acc + r.count, 0)} free for stats`
+                : ''}
+            </p>
+          )}
+
+          {availableSets.length === 0 && (
+            <p className="text-[10px] font-mono text-slate-500">
+              No set bonuses found in your armour. Re-sync the manifest if this looks wrong.
+            </p>
+          )}
         </div>
       </div>
 

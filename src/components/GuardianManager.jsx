@@ -453,6 +453,10 @@ export default function GuardianManager({
         isArtifice,
         isMasterwork,
         classType,
+        // Set identity, for the optimizer's 2-piece / 4-piece bonus targeting.
+        setHash: def.setHash ?? null,
+        setName: def.setName || null,
+        setBonuses: def.setBonuses || [],
         baseItem: def,
         socketColumns: def.socketColumns || [],
         statsList: def.statsList || [],
