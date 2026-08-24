@@ -175,10 +175,17 @@ export async function searchWeaponsClient(filters = {}) {
     results = results.filter(w => ammos.includes(w.ammoType));
   }
 
-  // 7. Source Categories
+  // 7. Sources. A selection is either a broad category ("Raid") or a specific
+  // source string ("Last Wish"), since both are offered by the search bar.
   if (filters.sourceCategory && filters.sourceCategory.length > 0) {
     const srcs = Array.isArray(filters.sourceCategory) ? filters.sourceCategory : filters.sourceCategory.split(',');
-    results = results.filter(w => srcs.includes(w.sourceCategory));
+    results = results.filter(w => srcs.some(src => w.sourceCategory === src || w.sourceString === src));
+  }
+
+  // 7b. Archetypes / frames, matched on the weapon's intrinsic.
+  if (filters.archetype && filters.archetype.length > 0) {
+    const archs = Array.isArray(filters.archetype) ? filters.archetype : filters.archetype.split(',');
+    results = results.filter(w => archs.includes(w.intrinsic?.name));
   }
 
   // 8. Craftable
@@ -290,10 +297,16 @@ export function getSuggestionsClient(query) {
   const archetypesSet = new Set();
   const sourcesSet = new Set();
   const weaponTypesSet = new Set();
+  const categoriesSet = new Set();
 
   cachedWeapons.forEach(w => {
     if (w.intrinsic?.name && w.intrinsic.name.toLowerCase().includes(q)) {
       archetypesSet.add(w.intrinsic.name);
+    }
+    // Broad categories rank ahead of specific source strings below, so both
+    // "Raid" and "Last Wish" are reachable from the one search bar.
+    if (w.sourceCategory && w.sourceCategory.toLowerCase().includes(q)) {
+      categoriesSet.add(w.sourceCategory);
     }
     if (w.sourceString && w.sourceString.toLowerCase().includes(q)) {
       sourcesSet.add(w.sourceString);
@@ -303,11 +316,16 @@ export function getSuggestionsClient(query) {
     }
   });
 
+  const sources = [
+    ...Array.from(categoriesSet),
+    ...Array.from(sourcesSet).filter(src => !categoriesSet.has(src))
+  ].slice(0, 8);
+
   return {
     weapons: matchingWeapons,
-    archetypes: Array.from(archetypesSet).slice(0, 6),
-    sources: Array.from(sourcesSet).slice(0, 5),
-    weaponTypes: Array.from(weaponTypesSet).slice(0, 5)
+    archetypes: Array.from(archetypesSet).slice(0, 8),
+    sources,
+    weaponTypes: Array.from(weaponTypesSet).slice(0, 6)
   };
 }
 

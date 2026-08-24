@@ -51,6 +51,7 @@ export default function WeaponFinder({
   const [selectedTiers, setSelectedTiers] = useState([]);
   const [selectedAmmoTypes, setSelectedAmmoTypes] = useState([]);
   const [selectedSources, setSelectedSources] = useState([]);
+  const [selectedArchetypes, setSelectedArchetypes] = useState([]);
   const [craftableOnly, setCraftableOnly] = useState(false);
 
   // Perk Filters
@@ -113,6 +114,7 @@ export default function WeaponFinder({
     selectedTiers, 
     selectedAmmoTypes, 
     selectedSources,
+    selectedArchetypes,
     craftableOnly,
     selectedPerks,
     perkMatchMode,
@@ -135,6 +137,7 @@ export default function WeaponFinder({
         tier: selectedTiers,
         ammoType: selectedAmmoTypes,
         sourceCategory: selectedSources,
+        archetype: selectedArchetypes,
         craftable: craftableOnly,
         perks: selectedPerks,
         perkMatchMode,
@@ -180,17 +183,22 @@ export default function WeaponFinder({
     setPage(1);
   };
 
+  /**
+   * Suggestions add a filter rather than overwriting the search box, so an
+   * archetype, a weapon type and a source can stack. Picking a named weapon is
+   * still a plain text search -- there is nothing to stack it with.
+   */
   const selectSuggestion = (type, value) => {
+    const addUnique = (setter, list, item) => {
+      if (!list.includes(item)) setter([...list, item]);
+    };
+
     if (type === 'weapon') {
       setSearch(value.name);
-    } else if (type === 'archetype') {
-      setSearch(value);
-    } else if (type === 'source') {
-      setSearch(value);
-    } else if (type === 'weaponType') {
-      if (!selectedWeaponTypes.includes(value)) {
-        setSelectedWeaponTypes([...selectedWeaponTypes, value]);
-      }
+    } else {
+      if (type === 'archetype') addUnique(setSelectedArchetypes, selectedArchetypes, value);
+      else if (type === 'source') addUnique(setSelectedSources, selectedSources, value);
+      else if (type === 'weaponType') addUnique(setSelectedWeaponTypes, selectedWeaponTypes, value);
       setSearch('');
     }
     setIsSearchDropdownOpen(false);
@@ -205,6 +213,7 @@ export default function WeaponFinder({
     setSelectedTiers([]);
     setSelectedAmmoTypes([]);
     setSelectedSources([]);
+    setSelectedArchetypes([]);
     setCraftableOnly(false);
     setSelectedPerks([]);
     setColumn3Perk('');
@@ -228,11 +237,33 @@ export default function WeaponFinder({
     'Frenzy', 'Target Lock', 'Hatchling', 'Headstone'
   ];
 
-  const sourceCategories = filtersMetadata?.sourceCategories || [
-    'Raid', 'Dungeon', 'Nightfall / Vanguard', 'Trials of Osiris',
-    'Iron Banner', 'Crucible', 'Into the Light / Onslaught',
-    'Exotic Quest / Archive', 'Seasonal / Episode', 'World Drop'
+  const removeFrom = (setter, list, value) => {
+    setter(list.filter(item => item !== value));
+    setPage(1);
+  };
+
+  // One flat list so the chip strip does not need three near-identical blocks.
+  const activeSearchFilters = [
+    ...selectedWeaponTypes.map(v => ({
+      key: `type:${v}`, label: 'Type', value: v, tone: 'bg-purple-500/15 border-purple-500/40 text-purple-200',
+      remove: () => removeFrom(setSelectedWeaponTypes, selectedWeaponTypes, v)
+    })),
+    ...selectedArchetypes.map(v => ({
+      key: `arch:${v}`, label: 'Frame', value: v, tone: 'bg-amber-500/15 border-amber-500/40 text-amber-200',
+      remove: () => removeFrom(setSelectedArchetypes, selectedArchetypes, v)
+    })),
+    ...selectedSources.map(v => ({
+      key: `src:${v}`, label: 'Source', value: v, tone: 'bg-sky-500/15 border-sky-500/40 text-sky-200',
+      remove: () => removeFrom(setSelectedSources, selectedSources, v)
+    }))
   ];
+
+  const clearSearchFilters = () => {
+    setSelectedWeaponTypes([]);
+    setSelectedArchetypes([]);
+    setSelectedSources([]);
+    setPage(1);
+  };
 
   const getDamageIcon = (type) => {
     switch (type?.toLowerCase()) {
@@ -252,6 +283,7 @@ export default function WeaponFinder({
     selectedTiers.length > 0 || 
     selectedAmmoTypes.length > 0 || 
     selectedSources.length > 0 ||
+    selectedArchetypes.length > 0 ||
     craftableOnly || 
     selectedPerks.length > 0 ||
     column3Perk ||
@@ -278,7 +310,7 @@ export default function WeaponFinder({
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search weapon name, archetype (e.g. Wave Frame, Apex, Last Wish)..."
+                placeholder="Search name, type, archetype or source — pick to add a filter"
                 value={search}
                 onChange={(e) => { 
                   setSearch(e.target.value); 
@@ -412,7 +444,7 @@ export default function WeaponFinder({
                 <Sparkles className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
                 <input
                   type="text"
-                  placeholder="Type to add any perk (e.g. Bait and Switch, Frenzy)..."
+                  placeholder="Search perks — pick to add a filter"
                   value={perkSearchInput}
                   onChange={(e) => {
                     setPerkSearchInput(e.target.value);
@@ -500,6 +532,34 @@ export default function WeaponFinder({
             </div>
           )}
 
+          {/* Filters added from the search bar. Without these the selections
+              made in the dropdown would apply invisibly. */}
+          {activeSearchFilters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#20293a]/60">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider font-heading">
+                Filters:
+              </span>
+              {activeSearchFilters.map(({ key, label, value, remove, tone }) => (
+                <span
+                  key={key}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${tone}`}
+                >
+                  <span className="opacity-60 font-mono text-[10px] uppercase">{label}</span>
+                  <span>{value}</span>
+                  <button onClick={remove} className="hover:text-white ml-0.5" aria-label={`Remove ${value} filter`}>
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={clearSearchFilters}
+                className="text-xs text-slate-500 hover:text-slate-300 underline font-mono ml-1"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           {/* Quick Popular Meta Perks Pills (Tap to inspect & filter) */}
           <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
             <span className="text-xs text-slate-500 whitespace-nowrap mr-1 font-mono flex items-center gap-1">
@@ -540,7 +600,8 @@ export default function WeaponFinder({
         </div>
       </div>
 
-      {/* --- FILTER PILLS & ACQUISITION SOURCES --- */}
+      {/* Toggles that are quicker to tap than to type. Weapon types,
+          archetypes and sources live in the search bar instead. */}
       <div className="space-y-3 bg-[#121722]/60 border border-[#20293a]/60 rounded-xl p-4">
         
         {/* Rarity / Tier (Exotic, Legendary, Rare) */}
@@ -567,63 +628,6 @@ export default function WeaponFinder({
                 >
                   {tier.name}
                 </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Weapon Types */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-[#20293a]/40">
-          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider font-heading whitespace-nowrap min-w-[70px]">
-            Type:
-          </span>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {(filtersMetadata?.weaponTypes || [
-              'Hand Cannon', 'Auto Rifle', 'Pulse Rifle', 'Scout Rifle', 'Submachine Gun',
-              'Sidearm', 'Bow', 'Shotgun', 'Fusion Rifle', 'Sniper Rifle', 'Linear Fusion Rifle',
-              'Grenade Launcher', 'Rocket Launcher', 'Machine Gun', 'Sword', 'Glaive', 'Trace Rifle'
-            ]).map((wt) => {
-              const active = selectedWeaponTypes.includes(wt);
-              return (
-                <button
-                  key={wt}
-                  onClick={() => toggleArrayFilter(setSelectedWeaponTypes, selectedWeaponTypes, wt)}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium transition-all ${
-                    active
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 shadow-sm shadow-amber-500/20'
-                      : 'bg-[#0b0e14] text-slate-400 hover:text-slate-200 border border-[#20293a]'
-                  }`}
-                >
-                  {wt}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Source / Activity Filter Row */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-[#20293a]/40">
-          <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider font-heading whitespace-nowrap min-w-[70px] flex items-center gap-1">
-            <MapPin className="w-3.5 h-3.5 text-amber-400" /> Source:
-          </span>
-          <div className="flex items-center gap-1.5 flex-nowrap">
-            {sourceCategories.map((srcCat) => {
-              const active = selectedSources.includes(srcCat);
-              const badge = getSourceCategoryBadge(srcCat);
-              return (
-                <LongPressable
-                  key={srcCat}
-                  onClick={() => toggleArrayFilter(setSelectedSources, selectedSources, srcCat)}
-                  onLongPress={() => onOpenInfo?.({ name: srcCat, category: 'Acquisition Source', description: `Activity category: ${srcCat}`, type: 'source' })}
-                  className={`flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium whitespace-nowrap transition-all border ${
-                    active
-                      ? `${badge.bg} ${badge.text} ${badge.border} font-bold shadow-sm`
-                      : 'bg-[#0b0e14] text-slate-400 hover:text-slate-200 border-[#20293a]'
-                  }`}
-                >
-                  <span>{badge.icon}</span>
-                  <span>{srcCat}</span>
-                </LongPressable>
               );
             })}
           </div>
