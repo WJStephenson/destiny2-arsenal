@@ -13,6 +13,7 @@ import {
   ARMOR_SLOTS,
   normaliseStats,
   buildComboIndex,
+  setKey,
   chooseSlotCaps,
   COMBO_BUDGET,
   pieceKey,
@@ -40,7 +41,9 @@ export default function ArmourOptimizer({
   const [assumeMasterwork, setAssumeMasterwork] = useState(true);
   const [assumeArtifice, setAssumeArtifice] = useState(false);
   const [selectedExoticHash, setSelectedExoticHash] = useState('any');
-  const [selectedSetFilter, setSelectedSetFilter] = useState('any');
+  // Armour set bonuses are earned by wearing 2 or 4 pieces of the same set.
+  const [selectedSetKey, setSelectedSetKey] = useState('any');
+  const [requiredSetCount, setRequiredSetCount] = useState(2);
   // Instance keys the player pinned into every build, or vetoed entirely.
   const [lockedPieces, setLockedPieces] = useState([]);
   const [excludedPieces, setExcludedPieces] = useState([]);
@@ -85,21 +88,35 @@ export default function ArmourOptimizer({
    * set metadata that only exists for the bundled manifest entries.
    * Exotics are always kept -- they are never part of a set.
    */
-  const filteredPools = useMemo(() => {
-    if (selectedSetFilter === 'any') return armorPools;
+  /**
+   * Every set the player could actually wear a bonus from, with the pieces
+   * that back it. A set only appears once it could reach its smaller bonus.
+   */
+  const availableSets = useMemo(() => {
+    const sets = new Map();
+    ARMOR_SLOTS.forEach(slot => armorPools[slot].forEach(piece => {
+      const key = setKey(piece);
+      if (!key) return;
+      if (!sets.has(key)) {
+        sets.set(key, { key, name: piece.setName || 'Unnamed set', bonuses: piece.setBonuses || [], slots: new Set(), pieces: 0 });
+      }
+      const entry = sets.get(key);
+      entry.pieces++;
+      entry.slots.add(slot);
+      if (!entry.bonuses.length && piece.setBonuses?.length) entry.bonuses = piece.setBonuses;
+    }));
 
-    const matches = (it) => {
-      if (it.tierTypeName === 'Exotic') return true;
-      if (selectedSetFilter === 'artifice') return !!it.isArtifice;
-      const haystack = `${it.sourceCategory || ''} ${it.sourceString || ''} ${it.name || ''}`.toLowerCase();
-      if (selectedSetFilter === 'iron_banner') return haystack.includes('iron banner') || haystack.includes('iron ');
-      if (selectedSetFilter === 'raid') return haystack.includes('raid') || haystack.includes('dungeon');
-      if (selectedSetFilter === 'trials') return haystack.includes('trials');
-      return true;
-    };
+    return Array.from(sets.values())
+      // A bonus needs distinct slots, not just copies of one piece.
+      .filter(entry => entry.slots.size >= 2)
+      .sort((a, b) => b.slots.size - a.slots.size || a.name.localeCompare(b.name));
+  }, [armorPools]);
 
-    return Object.fromEntries(ARMOR_SLOTS.map(s => [s, armorPools[s].filter(matches)]));
-  }, [armorPools, selectedSetFilter]);
+  const activeSet = availableSets.find(entry => entry.key === selectedSetKey) || null;
+
+  // The pool itself is never narrowed for a set: a set bonus is a constraint on
+  // the finished build, and the other slots stay free to roll whatever suits.
+  const filteredPools = armorPools;
 
   const totalPieces = useMemo(
     () => ARMOR_SLOTS.reduce((acc, s) => acc + filteredPools[s].length, 0),
@@ -123,8 +140,13 @@ export default function ArmourOptimizer({
    * ranges below responsive while sliders move.
    */
   const indexOptions = useMemo(
-    () => ({ exoticHash: selectedExoticHash, lockedPieces, excludedPieces }),
-    [selectedExoticHash, lockedPieces, excludedPieces]
+    () => ({
+      exoticHash: selectedExoticHash,
+      lockedPieces,
+      excludedPieces,
+      requiredSet: activeSet ? { key: activeSet.key, count: requiredSetCount } : null
+    }),
+    [selectedExoticHash, lockedPieces, excludedPieces, activeSet, requiredSetCount]
   );
 
   const comboIndex = useMemo(
@@ -474,18 +496,65 @@ export default function ArmourOptimizer({
         </div>
 
         <div className="space-y-1">
-          <label className="text-[11px] font-mono text-slate-400 block">Restrict pool</label>
-          <select
-            value={selectedSetFilter}
-            onChange={(e) => setSelectedSetFilter(e.target.value)}
-            className="w-full bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
-          >
-            <option value="any">All armour</option>
-            <option value="artifice">Artifice only</option>
-            <option value="raid">Raid &amp; dungeon</option>
-            <option value="iron_banner">Iron Banner</option>
-            <option value="trials">Trials of Osiris</option>
-          </select>
+          <label className="text-[11px] font-mono text-slate-400 block">Set bonus</label>
+          <div className="flex items-center gap-1.5">
+            <select
+              value={selectedSetKey}
+              onChange={(e) => setSelectedSetKey(e.target.value)}
+              className="flex-1 min-w-0 bg-[#0b0e14] border border-[#1e2638] rounded-xl p-2 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-400"
+            >
+              <option value="any">No set bonus</option>
+              {availableSets.map(entry => (
+                <option key={entry.key} value={entry.key}>
+                  {entry.name} ({entry.slots.size} slots)
+                </option>
+              ))}
+            </select>
+
+            {/* 4-piece is only offered once four different slots can supply it. */}
+            <div className="flex items-center bg-[#0b0e14] border border-[#1e2638] rounded-xl p-0.5 flex-shrink-0">
+              {[2, 4].map(count => {
+                const possible = !activeSet || activeSet.slots.size >= count;
+                return (
+                  <button
+                    key={count}
+                    onClick={() => setRequiredSetCount(count)}
+                    disabled={!activeSet || !possible}
+                    title={possible ? `Require ${count} pieces` : `You only have ${activeSet.slots.size} slots of this set`}
+                    className={`px-2 py-1 rounded-lg text-xs font-mono transition-colors ${
+                      activeSet && requiredSetCount === count
+                        ? 'bg-amber-500 text-black font-bold'
+                        : 'text-slate-400 hover:text-slate-200 disabled:opacity-30'
+                    }`}
+                  >
+                    {count}pc
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {activeSet?.bonuses?.length > 0 && (
+            <ul className="space-y-0.5 pt-0.5">
+              {activeSet.bonuses.map(bonus => (
+                <li
+                  key={bonus.count}
+                  className={`text-[10px] font-mono leading-snug ${
+                    requiredSetCount >= bonus.count ? 'text-amber-300' : 'text-slate-500'
+                  }`}
+                >
+                  <span className="font-bold">{bonus.count}pc</span> {bonus.name}
+                  {bonus.description ? ` — ${bonus.description}` : ''}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {availableSets.length === 0 && (
+            <p className="text-[10px] font-mono text-slate-500">
+              No set bonuses found in your armour. Re-sync the manifest if this looks wrong.
+            </p>
+          )}
         </div>
       </div>
 

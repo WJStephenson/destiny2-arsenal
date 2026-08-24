@@ -56,7 +56,14 @@ export async function getItemDefinition(itemHash) {
         tierTypeName: data.Response.inventory?.tierTypeName || tierMap[inv.tierType] || 'Legendary',
         damageType: damageTypeMap[damageTypeEnum] || 'Kinetic',
         isWeapon: data.Response.itemType === 3,
-        isArmor: data.Response.itemType === 2
+        isArmor: data.Response.itemType === 2,
+        // Armour set membership, for set-bonus targeting. The field has moved
+        // around between manifest versions, so each known spelling is tried and
+        // an unknown one simply means the piece belongs to no set.
+        setHash: data.Response.equippingBlock?.equipableItemSetHash
+          ?? data.Response.equippingBlock?.itemSetHash
+          ?? data.Response.equipableItemSetHash
+          ?? null
       };
 
       memoryCache.set(hashKey, def);

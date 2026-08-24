@@ -363,6 +363,43 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
     };
   }
 
+  // Armour set bonuses (the 2-piece / 4-piece perks). The table that carries
+  // them is found by name rather than hard-coded, and every field is probed
+  // rather than assumed, so a manifest that names things differently -- or
+  // predates set bonuses entirely -- yields no sets instead of throwing.
+  console.log('Reading Armour Set Definitions...');
+  const armorSetDefs = {};
+  try {
+    const tableNames = db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name);
+    const setTable = tableNames.find(n => /EquipableItemSet/i.test(n))
+      || tableNames.find(n => /ItemSetDefinition$/i.test(n));
+
+    if (setTable) {
+      for (const row of db.prepare(`SELECT json FROM ${setTable}`).all()) {
+        const data = JSON.parse(row.json);
+        const perks = data.setPerks || data.perks || data.setBonuses || [];
+        armorSetDefs[data.hash] = {
+          hash: data.hash,
+          name: data.displayProperties?.name || data.setName || '',
+          bonuses: (Array.isArray(perks) ? perks : []).map(perk => {
+            const count = perk.requiredSetCount ?? perk.setCount ?? perk.requiredCount ?? null;
+            const sandbox = sandboxDefs[perk.sandboxPerkHash ?? perk.perkHash];
+            return {
+              count,
+              name: sandbox?.name || perk.displayProperties?.name || '',
+              description: sandbox?.description || perk.displayProperties?.description || ''
+            };
+          }).filter(b => b.count != null).sort((a, b) => a.count - b.count)
+        };
+      }
+      console.log(`  Found ${Object.keys(armorSetDefs).length} armour sets in ${setTable}`);
+    } else {
+      console.log('  No armour set table in this manifest; set bonuses unavailable.');
+    }
+  } catch (err) {
+    console.log('  Could not read armour set definitions:', err.message);
+  }
+
   console.log('Reading Socket Type & Category Definitions...');
   const socketCategoryRows = db.prepare('SELECT id, json FROM DestinySocketCategoryDefinition').all();
   const socketCategoryDefs = {};
@@ -793,6 +830,15 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
       }
       stats.Total = totalStats;
 
+      // Which set this piece belongs to. The field naming has moved around, so
+      // each known spelling is tried and an unknown one simply means no set.
+      const setHash = item.equippingBlock?.equipableItemSetHash
+        ?? item.equippingBlock?.itemSetHash
+        ?? item.equipableItemSetHash
+        ?? item.itemSetHash
+        ?? null;
+      const armorSet = setHash != null ? armorSetDefs[setHash] : null;
+
       armorList.push({
         id: item.hash,
         name: item.displayProperties.name,
@@ -808,6 +854,9 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
         tierType: item.inventory?.tierType || 0,
         sourceString: cleanSourceString,
         sourceCategory,
+        setHash: armorSet?.hash ?? null,
+        setName: armorSet?.name || null,
+        setBonuses: armorSet?.bonuses || [],
         exoticPerk,
         stats
       });
