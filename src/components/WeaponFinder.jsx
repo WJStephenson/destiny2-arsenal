@@ -28,6 +28,7 @@ import {
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery } from '../utils/destiny-helpers';
 import { searchWeaponsClient, getSuggestionsClient, searchPerksClient } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
+import PerkIcon from './PerkIcon';
 
 export default function WeaponFinder({ 
   onSelectWeapon, 
@@ -909,54 +910,49 @@ export default function WeaponFinder({
                     </LongPressable>
                   )}
 
-                  {/* Perk Columns Preview (Long Pressable on each perk!) */}
-                  <div className="space-y-1">
+                  {/* The roll as it actually reads: a column per socket, perks
+                      as icons. Tap opens the perk; hold toggles it as a filter,
+                      and an active filter stays highlighted here. */}
+                  <div className="flex gap-1.5">
                     {w.socketColumns
                       .filter(c => ['Perk Column 3', 'Perk Column 4'].includes(c.type))
                       .map((col, idx) => (
-                        <div key={idx} className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
-                          <span className="text-[10px] text-slate-500 font-mono w-7 flex-shrink-0">
-                            {idx === 0 ? 'Col 3:' : 'Col 4:'}
-                          </span>
-                          <div className="flex items-center gap-1 flex-nowrap">
-                            {col.perks.slice(0, 6).map((p) => {
-                              const isTarget = selectedPerks.some(sp => sp.toLowerCase() === p.name.toLowerCase());
-                              return (
-                                <LongPressable
-                                  key={p.hash}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    addPerk(p.name);
-                                  }}
-                                  onLongPress={(e) => {
-                                    e.stopPropagation();
-                                    onOpenInfo?.({
-                                      name: p.name,
-                                      category: p.category || 'Perk',
-                                      description: p.description,
-                                      icon: p.icon,
-                                      stats: p.stats,
-                                      isEnhanced: p.isEnhanced,
-                                      type: 'perk'
-                                    });
-                                  }}
-                                  className={`px-1.5 py-0.5 rounded text-[11px] font-mono whitespace-nowrap ${
-                                    isTarget
-                                      ? 'bg-amber-500 text-black font-bold ring-1 ring-amber-400 shadow-sm shadow-amber-500/50'
-                                      : 'bg-slate-800/80 text-slate-300 border border-slate-700/60 hover:border-amber-400'
-                                  }`}
-                                  title={`${p.name} (Hold for info)`}
-                                >
-                                  {p.name}
-                                </LongPressable>
-                              );
-                            })}
-                            {col.perks.length > 6 && (
-                              <span className="text-[10px] text-slate-500 font-mono">
-                                +{col.perks.length - 6}
-                              </span>
-                            )}
-                          </div>
+                        <div key={idx} className="flex flex-col items-center gap-1">
+                          {/* A browse card is a preview, not the full roll --
+                              the modal shows every option. Five keeps the card
+                              from growing taller than the weapon it describes. */}
+                          {col.perks.slice(0, 5).map((p) => {
+                            const isTarget = selectedPerks.some(sp => sp.toLowerCase() === p.name.toLowerCase());
+                            const info = {
+                              name: p.name,
+                              category: p.category || 'Perk',
+                              description: p.description,
+                              icon: p.icon,
+                              stats: p.stats,
+                              isEnhanced: p.isEnhanced,
+                              type: 'perk'
+                            };
+                            return (
+                              <LongPressable
+                                key={p.hash}
+                                onClick={(e) => { e.stopPropagation(); onOpenInfo?.(info); }}
+                                onLongPress={(e) => { e.stopPropagation(); addPerk(p.name); }}
+                                title={`${p.name}${p.isEnhanced ? ' (Enhanced)' : ''} — hold to filter`}
+                                className={`relative justify-center w-7 h-7 rounded-full transition-all hover:scale-110 active:scale-95 border ${
+                                  isTarget
+                                    ? 'border-amber-400 ring-1 ring-amber-400 bg-amber-500/20'
+                                    : 'border-slate-700/60 bg-slate-800/80 hover:border-amber-400'
+                                }`}
+                              >
+                                <PerkIcon perk={p} className="w-5 h-5" />
+                              </LongPressable>
+                            );
+                          })}
+                          {col.perks.length > 5 && (
+                            <span className="text-[9px] text-slate-500 font-mono">
+                              +{col.perks.length - 5}
+                            </span>
+                          )}
                         </div>
                       ))}
                   </div>
