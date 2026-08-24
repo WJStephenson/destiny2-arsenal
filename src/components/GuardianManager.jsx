@@ -18,11 +18,22 @@ import {
   Info 
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
+import { ITEM_STATE_MASTERWORK } from '../utils/armor-stats';
 import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
 import ArmourOptimizer from './ArmourOptimizer';
+
+/** Every vault item reports this bucket, not the slot it would occupy equipped. */
+const VAULT_BUCKET_HASH = 138197802;
+
+/**
+ * How long a confirmed action outranks the profile Bungie sends back. Their
+ * profile endpoint can serve a cached response for a few seconds after an
+ * action lands; past this window, whatever Bungie reports is the truth.
+ */
+const CONFIRMED_ACTION_HOLD_MS = 20000;
 
 export default function GuardianManager({ 
   onSelectWeapon, 
@@ -43,9 +54,30 @@ export default function GuardianManager({
   const [vaultSearch, setVaultSearch] = useState('');
   const [vaultFilter, setVaultFilter] = useState('all'); // 'all' | 'weapons' | 'armor'
 
-  // Persistent pending action trackers to prevent Bungie's edge cache from reverting UI
+  // Confirmed-action trackers. Bungie's profile endpoint can serve a cached
+  // response for a few seconds after an action lands, so a *confirmed* change
+  // is held over the next refetch to stop the UI flicking back. Entries are
+  // only ever added after Bungie reports success -- holding an unconfirmed
+  // action here would show the player something that never happened.
   const pendingEquipsRef = useRef(new Map());
   const pendingTransfersRef = useRef(new Map());
+  const refreshTimerRef = useRef(null);
+
+  /**
+   * Re-read the profile shortly after an action, then once more a little later.
+   * The first pass usually wins; the second covers a slow cache invalidation.
+   */
+  const scheduleProfileRefresh = () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      fetchLiveProfile(false);
+      refreshTimerRef.current = setTimeout(() => fetchLiveProfile(false), 6000);
+    }, 2000);
+  };
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+  }, []);
 
   useEffect(() => {
     if (authSession?.authenticated) {
@@ -124,12 +156,19 @@ export default function GuardianManager({
     const instances = data.itemComponents?.instances?.data || {};
     const socketsMap = data.itemComponents?.sockets?.data || {};
     const statsMap = data.itemComponents?.stats?.data || {};
-    const rawVault = data.profileInventory?.data?.items || [];
 
-    // Reconcile Pending Equips with stale Bungie cache
+    // Bind the vault list back onto the payload so the reconciliation below and
+    // the vault built further down are the same array -- otherwise a profile
+    // with no vault component silently drops every reconciled move.
+    if (!data.profileInventory) data.profileInventory = { data: { items: [] } };
+    if (!data.profileInventory.data) data.profileInventory.data = { items: [] };
+    if (!data.profileInventory.data.items) data.profileInventory.data.items = [];
+    const rawVault = data.profileInventory.data.items;
+
+    // Hold confirmed actions over a stale cached profile.
     const now = Date.now();
     for (const [instId, entry] of pendingEquipsRef.current.entries()) {
-      if (now - entry.timestamp > 30000) {
+      if (now - entry.timestamp > CONFIRMED_ACTION_HOLD_MS) {
         pendingEquipsRef.current.delete(instId);
         continue;
       }
@@ -157,7 +196,7 @@ export default function GuardianManager({
 
     // Reconcile Pending Transfers with stale Bungie cache
     for (const [instId, entry] of pendingTransfersRef.current.entries()) {
-      if (now - entry.timestamp > 30000) {
+      if (now - entry.timestamp > CONFIRMED_ACTION_HOLD_MS) {
         pendingTransfersRef.current.delete(instId);
         continue;
       }
@@ -245,13 +284,27 @@ export default function GuardianManager({
         });
       }
 
-      // Slot detection
+      // Slot detection. The definition's bucket is authoritative because a
+      // vault item's own bucketHash is the vault, not its equipment slot.
       let detectedSlot = def.slot;
       if (!detectedSlot) {
         if (it.bucketHash === 1498876634) detectedSlot = 'Kinetic';
         else if (it.bucketHash === 2465295065) detectedSlot = 'Energy';
         else if (it.bucketHash === 953998645) detectedSlot = 'Power';
       }
+
+      // Artifice armour carries an extra +3 mod slot, which the optimizer needs
+      // to know about. The bundled manifest flags it directly; otherwise the
+      // artifice intrinsic shows up as a socket plug on the instance.
+      const isArtifice = def.isArtifice === true
+        || perks.some(p => (p.name || '').toLowerCase().includes('artifice'));
+
+      // Bungie ItemState is a bitmask; bit 2 marks a masterworked instance.
+      const isMasterwork = ((it.state || 0) & ITEM_STATE_MASTERWORK) !== 0;
+
+      // 'Any' means the piece is not class-locked (class items aside), so keep
+      // it null rather than filtering the piece out of every Guardian's pool.
+      const classType = def.classType && def.classType !== 'Any' ? def.classType : null;
 
       // New Armor Stats extraction (Destiny 2 Frontiers System):
       // Weapons (formerly Mobility), Health (formerly Resilience), Class (formerly Recovery),
@@ -330,6 +383,9 @@ export default function GuardianManager({
         armorSlot: def.isArmor ? (def.armorSlot || def.itemTypeDisplayName) : null,
         isWeapon: def.isWeapon || def.weaponType != null || [1498876634, 2465295065, 953998645].includes(it.bucketHash),
         isArmor: def.isArmor || def.armorSlot != null || [3448274439, 3551901077, 1423949262, 20886954, 1585787867].includes(it.bucketHash),
+        isArtifice,
+        isMasterwork,
+        classType,
         baseItem: def,
         socketColumns: def.socketColumns || [],
         statsList: def.statsList || [],
@@ -396,313 +452,410 @@ export default function GuardianManager({
     });
   }
 
-  // Helper to determine if two items occupy the same equipment slot
+  /**
+   * Canonical equipment slot for an item.
+   *
+   * Everything sitting in the vault reports the vault's own bucket rather than
+   * the slot it would occupy once equipped, so the instance bucket is only
+   * trustworthy for items already on a character. The item definition carries
+   * the real equipment bucket, which is what `slot` / `armorSlot` are built
+   * from, so those come first.
+   */
+  const equipSlotKey = (it) => {
+    if (!it) return null;
+    const named = (it.armorSlot || it.slot || it.itemTypeDisplayName || '').toLowerCase();
+    if (named.includes('helmet')) return 'helmet';
+    if (named.includes('gauntlet') || named.includes('arms')) return 'gauntlets';
+    if (named.includes('chest')) return 'chest';
+    if (named.includes('leg') || named.includes('boots') || named.includes('greaves') || named.includes('strides')) return 'legs';
+    if (named.includes('class') || named.includes('mark') || named.includes('cloak') || named.includes('bond')) return 'classItem';
+    if (named.includes('kinetic')) return 'kinetic';
+    if (named.includes('energy')) return 'energy';
+    if (named.includes('power') || named.includes('heavy')) return 'power';
+
+    switch (it.bucketHash) {
+      case 3448274439: return 'helmet';
+      case 3551901077: return 'gauntlets';
+      case 1423949262: return 'chest';
+      case 20886954: return 'legs';
+      case 1585787867: return 'classItem';
+      case 1498876634: return 'kinetic';
+      case 2465295065: return 'energy';
+      case 953998645: return 'power';
+      default: return null;
+    }
+  };
+
+  /** Do two items compete for the same equipment slot? */
   const isSameSlot = (a, b) => {
     if (!a || !b) return false;
-    if (a.bucketHash && b.bucketHash && a.bucketHash === b.bucketHash) return true;
-    if (a.isWeapon && b.isWeapon) {
-      if (a.slot && b.slot && a.slot.toLowerCase() === b.slot.toLowerCase()) return true;
-    }
-    if (a.isArmor && b.isArmor) {
-      const getSlotKey = (it) => {
-        const s = (it.armorSlot || it.slot || it.itemTypeDisplayName || '').toLowerCase();
-        if (s.includes('helmet')) return 'helmet';
-        if (s.includes('gauntlet') || s.includes('arms')) return 'gauntlets';
-        if (s.includes('chest')) return 'chest';
-        if (s.includes('leg')) return 'legs';
-        if (s.includes('class') || s.includes('mark') || s.includes('cloak') || s.includes('bond')) return 'class';
-        return null;
-      };
-      const slotA = getSlotKey(a);
-      const slotB = getSlotKey(b);
-      if (slotA && slotB && slotA === slotB) return true;
+    // Two items can only share a slot if they are the same kind of gear.
+    if (!!a.isWeapon !== !!b.isWeapon) return false;
+    if (!!a.isArmor !== !!b.isArmor) return false;
+
+    const slotA = equipSlotKey(a);
+    const slotB = equipSlotKey(b);
+    if (slotA && slotB) return slotA === slotB;
+
+    // Fall back to the instance bucket, but never for vault items -- they all
+    // share one bucket and would otherwise match each other indiscriminately.
+    if (a.bucketHash && b.bucketHash && a.bucketHash !== VAULT_BUCKET_HASH) {
+      return a.bucketHash === b.bucketHash;
     }
     return false;
   };
 
-  const handleEquipItem = async (itemInstanceId) => {
-    const character = profileData?.characters?.[selectedCharacterIndex];
-    if (!character || !itemInstanceId) return;
+  /**
+   * Bungie answers every action with HTTP 200 and puts the real verdict in the
+   * body, so `res.ok` says nothing about whether the equip actually happened.
+   * Reading ErrorCode is the only way to tell success from failure.
+   */
+  const BUNGIE_SUCCESS = 1;
 
-    // Track pending equip in ref to protect against stale Bungie CDN cache responses
-    pendingEquipsRef.current.set(itemInstanceId, {
-      characterId: character.characterId,
-      timestamp: Date.now()
-    });
+  const readActionResult = async (res) => {
+    let payload = null;
+    try {
+      payload = await res.json();
+    } catch (e) {
+      return { ok: false, message: `Bungie returned an unreadable response (${res.status})` };
+    }
 
-    // 1. Immediate Optimistic UI Update (0ms latency)
-    setProfileData(prev => {
-      if (!prev) return prev;
-      const nextChars = [...prev.characters];
-      const curChar = { ...nextChars[selectedCharacterIndex] };
+    if (payload && payload.ErrorCode !== undefined) {
+      return {
+        ok: payload.ErrorCode === BUNGIE_SUCCESS,
+        code: payload.ErrorCode,
+        message: payload.Message || payload.ErrorStatus || 'Bungie rejected that action'
+      };
+    }
 
-      // Find the item in character's bag or vault
-      const itemInBag = curChar.bag?.find(it => it.itemInstanceId === itemInstanceId);
-      const itemInVault = prev.vault?.find(it => it.itemInstanceId === itemInstanceId);
-      const itemToEquip = itemInBag || itemInVault;
+    // Our own proxy's error shape, or something unexpected: no Bungie verdict,
+    // so the caller should try talking to Bungie directly.
+    return { ok: false, message: payload?.error || `Request failed (${res.status})` };
+  };
 
-      if (!itemToEquip) return prev;
+  /**
+   * Run an inventory action through the local proxy when it is available and
+   * fall back to Bungie directly. Only a response carrying an ErrorCode counts
+   * as a verdict; anything else means the proxy could not answer and we should
+   * ask Bungie ourselves.
+   */
+  const runInventoryAction = async ({ proxyPath, proxyBody, directUrl, directBody }) => {
+    try {
+      const res = await fetch(proxyPath, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(proxyBody)
+      });
+      const result = await readActionResult(res);
+      if (result.code !== undefined) return result;
+    } catch (e) {
+      // Proxy unreachable (static hosting) -- fall through to Bungie.
+    }
 
-      // Find currently equipped item in that exact slot
-      const equippedIdx = curChar.equipped?.findIndex(it => isSameSlot(it, itemToEquip));
-      if (equippedIdx !== -1 && equippedIdx !== undefined) {
-        const oldEquipped = curChar.equipped[equippedIdx];
-        const nextEquipped = [...curChar.equipped];
-        nextEquipped[equippedIdx] = itemToEquip;
-        curChar.equipped = nextEquipped;
-
-        if (itemInBag) {
-          curChar.bag = curChar.bag.filter(it => it.itemInstanceId !== itemInstanceId);
-          curChar.bag.push(oldEquipped);
-          nextChars[selectedCharacterIndex] = curChar;
-          return { ...prev, characters: nextChars };
-        } else if (itemInVault) {
-          const nextVault = prev.vault.filter(it => it.itemInstanceId !== itemInstanceId);
-          curChar.bag = [...(curChar.bag || []), oldEquipped];
-          nextChars[selectedCharacterIndex] = curChar;
-          return { ...prev, characters: nextChars, vault: nextVault };
-        }
-      }
-      return prev;
-    });
-
-    setActionLoading(itemInstanceId);
-    setStatusMessage('Equipping item on Guardian...');
     try {
       const token = await getValidAuthToken();
+      if (!token) return { ok: false, message: 'Your Bungie.net session expired. Sign in again.' };
       const settings = getStoredSettings();
 
-      try {
-        const res = await fetch('/api/inventory/equip', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            membershipType: profileData.profileInfo?.membershipType,
-            characterId: character.characterId,
-            itemInstanceId
-          })
-        });
-        if (res.ok) {
-          setStatusMessage('Item equipped successfully!');
-          // Delay live profile fetch to allow Bungie cache to invalidate
-          setTimeout(() => fetchLiveProfile(false), 3000);
-          return;
-        }
-      } catch (e) {}
-
-      const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Items/EquipItem/', {
+      const res = await fetch(directUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'X-API-Key': settings.apiKey || '',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          itemId: itemInstanceId,
-          characterId: character.characterId,
-          membershipType: profileData.profileInfo?.membershipType || 3
-        })
+        body: JSON.stringify(directBody)
       });
-      const data = await directRes.json();
-      if (data.ErrorCode === 1) {
-        setStatusMessage('Item equipped on your Guardian!');
-        setTimeout(() => fetchLiveProfile(false), 3500);
-      } else {
-        setStatusMessage(data.Message || 'Action completed');
-        pendingEquipsRef.current.delete(itemInstanceId);
-        await fetchLiveProfile(false);
-      }
+      return await readActionResult(res);
     } catch (e) {
-      setStatusMessage('Request processed');
-    } finally {
-      setActionLoading(null);
-      setTimeout(() => setStatusMessage(null), 3000);
+      return { ok: false, message: 'Could not reach Bungie.net' };
     }
   };
 
-  const handleTransferItem = async (item, transferToVault = false) => {
-    const character = profileData?.characters?.[selectedCharacterIndex];
-    if (!character || !item) return;
+  /**
+   * Edit one character (found by id, not by the currently selected index --
+   * the selection can change while a request is in flight) together with the
+   * shared vault. Returning false from `fn` abandons the update entirely.
+   */
+  const withCharacter = (prev, characterId, fn) => {
+    const idx = prev.characters?.findIndex(c => c.characterId === characterId);
+    if (idx === undefined || idx === -1) return null;
 
+    const draft = {
+      ...prev.characters[idx],
+      equipped: [...(prev.characters[idx].equipped || [])],
+      bag: [...(prev.characters[idx].bag || [])]
+    };
+    const vault = [...(prev.vault || [])];
+
+    if (fn(draft, vault) === false) return null;
+
+    const characters = [...prev.characters];
+    characters[idx] = draft;
+    return { ...prev, characters, vault };
+  };
+
+  /**
+   * Apply an optimistic change and hand back a function that undoes it.
+   *
+   * The previous state is captured inside the updater rather than from the
+   * render-time `profileData`, so an equip that had to pull its piece out of
+   * the vault first rolls back to "on the character", not to "still in the
+   * vault". The updater always runs before the network round trip resolves.
+   */
+  const applyOptimistic = (fn) => {
+    let previous = null;
+    setProfileData(prev => {
+      if (!prev) return prev;
+      const next = fn(prev);
+      if (!next) return prev;
+      previous = prev;
+      return next;
+    });
+    return () => { if (previous) setProfileData(previous); };
+  };
+
+  /** Does this character already wear a conflicting exotic of the same family? */
+  const hasConflictingExotic = (character, item) => {
+    if (item.tierTypeName !== 'Exotic') return false;
+    return (character.equipped || []).some(other => {
+      if (!other || other.itemInstanceId === item.itemInstanceId) return false;
+      if (other.tierTypeName !== 'Exotic') return false;
+      if (isSameSlot(other, item)) return false; // straight swap, not a conflict
+      return (other.isArmor && item.isArmor) || (other.isWeapon && item.isWeapon);
+    });
+  };
+
+  const finishAction = (message) => {
+    setActionLoading(null);
+    setStatusMessage(message);
+    setTimeout(() => setStatusMessage(null), 4000);
+  };
+
+  /**
+   * Move an item between the vault and a character.
+   * Resolves to true only when Bungie confirmed the move.
+   */
+  const handleTransferItem = async (item, transferToVault = false, options = {}) => {
+    const { chained = false } = options;
+    const character = profileData?.characters?.[selectedCharacterIndex];
+    if (!character || !item?.itemInstanceId) return false;
+    const characterId = character.characterId;
+
+    // An equipped item cannot be moved to the vault; the game requires it to be
+    // unequipped first, and pretending otherwise leaves a hole in the UI.
+    if (transferToVault && (character.equipped || []).some(it => it.itemInstanceId === item.itemInstanceId)) {
+      finishAction(`Equip something else in that slot before moving ${item.name} to the vault.`);
+      return false;
+    }
+
+    if (!chained) setActionLoading(item.itemInstanceId);
+    setStatusMessage(transferToVault ? `Moving ${item.name} to the vault...` : `Pulling ${item.name} from the vault...`);
+
+    const revert = applyOptimistic(prev => withCharacter(prev, characterId, (char, vault) => {
+      const fromBag = char.bag.findIndex(it => it.itemInstanceId === item.itemInstanceId);
+      const fromVault = vault.findIndex(it => it.itemInstanceId === item.itemInstanceId);
+
+      if (transferToVault) {
+        if (fromBag === -1) return false;
+        char.bag.splice(fromBag, 1);
+        vault.unshift(item);
+      } else {
+        if (fromVault === -1) return false;
+        vault.splice(fromVault, 1);
+        char.bag.unshift(item);
+      }
+      return true;
+    }));
+
+    const result = await runInventoryAction({
+      proxyPath: '/api/inventory/transfer',
+      proxyBody: {
+        membershipType: profileData.profileInfo?.membershipType,
+        characterId,
+        itemReferenceHash: item.itemHash,
+        itemInstanceId: item.itemInstanceId,
+        transferToVault
+      },
+      directUrl: 'https://www.bungie.net/Platform/Destiny2/Actions/Items/TransferItem/',
+      directBody: {
+        itemReferenceHash: item.itemHash,
+        itemId: item.itemInstanceId,
+        stackSize: 1,
+        transferToVault,
+        characterId,
+        membershipType: profileData.profileInfo?.membershipType || 3
+      }
+    });
+
+    if (!result.ok) {
+      // Put the UI back where it was, then confirm against Bungie.
+      pendingTransfersRef.current.delete(item.itemInstanceId);
+      revert();
+      if (!chained) finishAction(result.message);
+      fetchLiveProfile(false);
+      return false;
+    }
+
+    // Only hold the optimistic state over a refetch once the move is confirmed;
+    // otherwise a rejected action would be forced onto the UI until it aged out.
     pendingTransfersRef.current.set(item.itemInstanceId, {
-      characterId: character.characterId,
+      characterId,
       transferToVault,
       timestamp: Date.now()
     });
 
-    // 1. Immediate Optimistic UI Update
-    setProfileData(prev => {
-      if (!prev) return prev;
-      const nextChars = [...prev.characters];
-      const curChar = { ...nextChars[selectedCharacterIndex] };
+    if (!chained) {
+      finishAction(transferToVault ? `${item.name} moved to the vault.` : `${item.name} pulled to your ${character.classType}.`);
+      scheduleProfileRefresh();
+    }
+    return true;
+  };
 
-      if (transferToVault) {
-        // Move from character bag/equipped to vault
-        curChar.bag = (curChar.bag || []).filter(it => it.itemInstanceId !== item.itemInstanceId);
-        curChar.equipped = (curChar.equipped || []).filter(it => it.itemInstanceId !== item.itemInstanceId);
-        const nextVault = [item, ...(prev.vault || [])];
-        nextChars[selectedCharacterIndex] = curChar;
-        return { ...prev, characters: nextChars, vault: nextVault };
-      } else {
-        // Move from vault to character bag
-        const nextVault = (prev.vault || []).filter(it => it.itemInstanceId !== item.itemInstanceId);
-        curChar.bag = [item, ...(curChar.bag || [])];
-        nextChars[selectedCharacterIndex] = curChar;
-        return { ...prev, characters: nextChars, vault: nextVault };
+  /**
+   * Equip an item on the selected character.
+   * Resolves to true only when Bungie confirmed the equip.
+   */
+  const handleEquipItem = async (itemInstanceId) => {
+    const character = profileData?.characters?.[selectedCharacterIndex];
+    if (!character || !itemInstanceId) return false;
+    const characterId = character.characterId;
+
+    if ((character.equipped || []).some(it => it.itemInstanceId === itemInstanceId)) return true;
+
+    const inBag = (character.bag || []).find(it => it.itemInstanceId === itemInstanceId);
+    const inVault = (profileData.vault || []).find(it => it.itemInstanceId === itemInstanceId);
+    const item = inBag || inVault;
+
+    if (!item) {
+      finishAction('That item is no longer where the app expected it. Refreshing...');
+      fetchLiveProfile(false);
+      return false;
+    }
+
+    setActionLoading(itemInstanceId);
+
+    // Bungie cannot equip straight out of the vault -- the piece has to reach
+    // the character's inventory first.
+    if (inVault && !inBag) {
+      const moved = await handleTransferItem(item, false, { chained: true });
+      if (!moved) {
+        finishAction(`Could not pull ${item.name} from the vault.`);
+        return false;
+      }
+    }
+
+    setStatusMessage(`Equipping ${item.name}...`);
+
+    // Equipping a second exotic makes the game unequip the first, and there is
+    // no way to know what it puts in the emptied slot. Rather than invent a
+    // state that may be wrong, skip the optimistic step here and let the
+    // confirmed refetch show what actually happened.
+    const conflicts = hasConflictingExotic(character, item);
+
+    let revert = () => {};
+    if (!conflicts) {
+      revert = applyOptimistic(prev => withCharacter(prev, characterId, (char, vault) => {
+        const slotIdx = char.equipped.findIndex(it => isSameSlot(it, item));
+        if (slotIdx === -1) return false;
+
+        const displaced = char.equipped[slotIdx];
+        char.equipped[slotIdx] = item;
+
+        const bagIdx = char.bag.findIndex(it => it.itemInstanceId === itemInstanceId);
+        if (bagIdx !== -1) char.bag.splice(bagIdx, 1);
+        const vaultIdx = vault.findIndex(it => it.itemInstanceId === itemInstanceId);
+        if (vaultIdx !== -1) vault.splice(vaultIdx, 1);
+
+        if (displaced) char.bag.unshift(displaced);
+        return true;
+      }));
+    }
+
+    const result = await runInventoryAction({
+      proxyPath: '/api/inventory/equip',
+      proxyBody: {
+        membershipType: profileData.profileInfo?.membershipType,
+        characterId,
+        itemInstanceId
+      },
+      directUrl: 'https://www.bungie.net/Platform/Destiny2/Actions/Items/EquipItem/',
+      directBody: {
+        itemId: itemInstanceId,
+        characterId,
+        membershipType: profileData.profileInfo?.membershipType || 3
       }
     });
 
-    setActionLoading(item.itemInstanceId);
-    setStatusMessage(transferToVault ? 'Transferring to Vault...' : `Transferring to ${character.classType}...`);
-    try {
-      const token = await getValidAuthToken();
-      const settings = getStoredSettings();
-
-      try {
-        const res = await fetch('/api/inventory/transfer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            membershipType: profileData.profileInfo?.membershipType,
-            characterId: character.characterId,
-            itemReferenceHash: item.itemHash,
-            itemInstanceId: item.itemInstanceId,
-            transferToVault
-          })
-        });
-        if (res.ok) {
-          setStatusMessage(transferToVault ? 'Moved to Vault!' : 'Transferred to Character!');
-          setTimeout(() => fetchLiveProfile(false), 3000);
-          return;
-        }
-      } catch (e) {}
-
-      const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Items/TransferItem/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': settings.apiKey || '',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          itemReferenceHash: item.itemHash,
-          itemId: item.itemInstanceId,
-          characterId: character.characterId,
-          membershipType: profileData.profileInfo?.membershipType || 3,
-          transferToVault
-        })
-      });
-      const data = await directRes.json();
-      if (data.ErrorCode === 1) {
-        setStatusMessage(transferToVault ? 'Moved to Vault!' : `Transferred to ${character.classType}!`);
-        setTimeout(() => fetchLiveProfile(false), 3500);
-      } else {
-        setStatusMessage(data.Message || 'Transfer complete');
-        pendingTransfersRef.current.delete(item.itemInstanceId);
-        await fetchLiveProfile(false);
-      }
-    } catch (e) {
-      setStatusMessage('Transferred via Bungie');
-    } finally {
-      setActionLoading(null);
-      setTimeout(() => setStatusMessage(null), 3000);
+    if (!result.ok) {
+      pendingEquipsRef.current.delete(itemInstanceId);
+      revert();
+      finishAction(result.message);
+      fetchLiveProfile(false);
+      return false;
     }
+
+    pendingEquipsRef.current.set(itemInstanceId, { characterId, timestamp: Date.now() });
+    finishAction(`${item.name} equipped.`);
+    scheduleProfileRefresh();
+    return true;
   };
 
   const handleEquipLoadout = async (loadoutIndex) => {
     const character = profileData?.characters?.[selectedCharacterIndex];
-    if (!character) return;
-
+    if (!character) return false;
+    const characterId = character.characterId;
     const loadout = character.loadouts?.[loadoutIndex];
-    if (loadout && loadout.items?.length > 0) {
-      loadout.items.forEach(ldItem => {
-        if (ldItem.itemInstanceId) {
-          pendingEquipsRef.current.set(ldItem.itemInstanceId, {
-            characterId: character.characterId,
-            timestamp: Date.now()
-          });
-        }
-      });
-
-      // Optimistically update equipped items from loadout
-      setProfileData(prev => {
-        if (!prev) return prev;
-        const nextChars = [...prev.characters];
-        const curChar = { ...nextChars[selectedCharacterIndex] };
-
-        const nextEquipped = [...curChar.equipped];
-        const nextBag = [...curChar.bag];
-
-        loadout.items.forEach(ldItem => {
-          if (!ldItem.itemInstanceId) return;
-          const targetSlotIdx = nextEquipped.findIndex(it => isSameSlot(it, ldItem));
-          if (targetSlotIdx !== -1) {
-            const oldEq = nextEquipped[targetSlotIdx];
-            nextEquipped[targetSlotIdx] = ldItem;
-            // Place old item in bag if not already in loadout
-            if (!loadout.items.some(x => x.itemInstanceId === oldEq.itemInstanceId)) {
-              nextBag.push(oldEq);
-            }
-          }
-        });
-
-        curChar.equipped = nextEquipped;
-        curChar.bag = nextBag;
-        nextChars[selectedCharacterIndex] = curChar;
-        return { ...prev, characters: nextChars };
-      });
-    }
 
     setActionLoading(`loadout_${loadoutIndex}`);
-    setStatusMessage(`Equipping Loadout #${loadoutIndex + 1}...`);
-    try {
-      const token = await getValidAuthToken();
-      const settings = getStoredSettings();
+    setStatusMessage(`Equipping ${loadout?.name || `loadout ${loadoutIndex + 1}`}...`);
 
-      try {
-        const res = await fetch('/api/inventory/equip-loadout', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            membershipType: profileData.profileInfo?.membershipType,
-            characterId: character.characterId,
-            loadoutIndex
-          })
+    let revert = () => {};
+    if (loadout?.items?.length) {
+      revert = applyOptimistic(prev => withCharacter(prev, characterId, (char) => {
+        const incoming = new Set(loadout.items.map(it => it.itemInstanceId));
+        loadout.items.forEach(ldItem => {
+          if (!ldItem.itemInstanceId) return;
+          const slotIdx = char.equipped.findIndex(it => isSameSlot(it, ldItem));
+          if (slotIdx === -1) return;
+          const displaced = char.equipped[slotIdx];
+          char.equipped[slotIdx] = ldItem;
+          char.bag = char.bag.filter(it => it.itemInstanceId !== ldItem.itemInstanceId);
+          if (displaced && !incoming.has(displaced.itemInstanceId)) char.bag.unshift(displaced);
         });
-        if (res.ok) {
-          setStatusMessage(`Loadout #${loadoutIndex + 1} equipped!`);
-          setTimeout(() => fetchLiveProfile(false), 3000);
-          return;
-        }
-      } catch (e) {}
-
-      const directRes = await fetch('https://www.bungie.net/Platform/Destiny2/Actions/Loadouts/EquipLoadout/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': settings.apiKey || '',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          loadoutIndex,
-          characterId: character.characterId,
-          membershipType: profileData.profileInfo?.membershipType || 3
-        })
-      });
-      const data = await directRes.json();
-      if (data.ErrorCode === 1) {
-        setStatusMessage(`Loadout #${loadoutIndex + 1} active in-game!`);
-        setTimeout(() => fetchLiveProfile(false), 3500);
-      } else {
-        setStatusMessage(data.Message || `Loadout active`);
-        await fetchLiveProfile(false);
-      }
-    } catch (e) {
-      setStatusMessage(`Loadout action processed`);
-    } finally {
-      setActionLoading(null);
-      setTimeout(() => setStatusMessage(null), 3000);
+        return true;
+      }));
     }
+
+    const result = await runInventoryAction({
+      proxyPath: '/api/inventory/equip-loadout',
+      proxyBody: {
+        membershipType: profileData.profileInfo?.membershipType,
+        characterId,
+        loadoutIndex
+      },
+      directUrl: 'https://www.bungie.net/Platform/Destiny2/Actions/Loadouts/EquipLoadout/',
+      directBody: {
+        loadoutIndex,
+        characterId,
+        membershipType: profileData.profileInfo?.membershipType || 3
+      }
+    });
+
+    if (!result.ok) {
+      (loadout?.items || []).forEach(it => pendingEquipsRef.current.delete(it.itemInstanceId));
+      revert();
+      finishAction(result.message);
+      fetchLiveProfile(false);
+      return false;
+    }
+
+    (loadout?.items || []).forEach(it => {
+      if (it.itemInstanceId) pendingEquipsRef.current.set(it.itemInstanceId, { characterId, timestamp: Date.now() });
+    });
+    finishAction(`${loadout?.name || `Loadout ${loadoutIndex + 1}`} equipped.`);
+    scheduleProfileRefresh();
+    return true;
   };
 
   if (!authSession?.authenticated) {
