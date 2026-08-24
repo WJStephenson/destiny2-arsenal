@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { ITEM_STATE_MASTERWORK, STAT_META, normaliseStats } from '../utils/armor-stats';
-import { getStoredAuthSession, getStoredSettings, getValidAuthToken } from '../utils/auth-storage';
+import { ensureApiKey, getStoredAuthSession, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
 import {
@@ -71,6 +71,13 @@ const STAT_HASHES = [
  */
 const CONFIRMED_ACTION_HOLD_MS = 20000;
 
+/**
+ * How stale a profile has to be before returning to the app re-reads it. Gear
+ * moves in the game while this sits in the background, so coming back to a
+ * profile older than this is coming back to a lie.
+ */
+const STALE_PROFILE_MS = 30000;
+
 export default function GuardianManager({ 
   onSelectWeapon, 
   onSelectArmor,
@@ -90,6 +97,28 @@ export default function GuardianManager({
   const [vaultSearch, setVaultSearch] = useState('');
   const [vaultFilter, setVaultFilter] = useState('all'); // 'all' | 'weapons' | 'armor'
 
+  /**
+   * The profile as it stands right now, for the action handlers.
+   *
+   * A handler held by a child -- the optimizer runs a whole build's worth of
+   * actions through the same captured callbacks -- would otherwise keep reading
+   * the snapshot from the render it was created in, and act on gear that has
+   * already moved.
+   */
+  const profileDataRef = useRef(null);
+
+  /** Identifies the most recent write, so a rollback can tell it is still the top of the stack. */
+  const lastWriteRef = useRef(null);
+
+  const setProfile = (updater, token = {}) => setProfileData(prev => {
+    const next = typeof updater === 'function' ? updater(prev) : updater;
+    if (next !== prev) {
+      profileDataRef.current = next;
+      lastWriteRef.current = token;
+    }
+    return next;
+  });
+
   // Confirmed-action trackers. Bungie's profile endpoint can serve a cached
   // response for a few seconds after an action lands, so a *confirmed* change
   // is held over the next refetch to stop the UI flicking back. Entries are
@@ -98,6 +127,8 @@ export default function GuardianManager({
   const pendingEquipsRef = useRef(new Map());
   const pendingTransfersRef = useRef(new Map());
   const refreshTimerRef = useRef(null);
+  const statusTimerRef = useRef(null);
+  const lastFetchAtRef = useRef(0);
 
   /**
    * Re-read the profile shortly after an action, then once more a little later.
@@ -113,6 +144,7 @@ export default function GuardianManager({
 
   useEffect(() => () => {
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -121,25 +153,49 @@ export default function GuardianManager({
     }
   }, [authSession]);
 
+  // Coming back to the app after playing: re-read anything that has gone stale.
+  useEffect(() => {
+    if (!authSession?.authenticated) return undefined;
+
+    const refreshIfStale = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - lastFetchAtRef.current < STALE_PROFILE_MS) return;
+      fetchLiveProfile(false);
+    };
+
+    document.addEventListener('visibilitychange', refreshIfStale);
+    window.addEventListener('focus', refreshIfStale);
+    return () => {
+      document.removeEventListener('visibilitychange', refreshIfStale);
+      window.removeEventListener('focus', refreshIfStale);
+    };
+  }, [authSession]);
+
   const fetchLiveProfile = async (showLoading = false) => {
     if (showLoading) setLoading(true);
+    lastFetchAtRef.current = Date.now();
+    // Item definitions are read straight from Bungie on either route, so the
+    // key has to be in place before anything is enriched.
+    await ensureApiKey();
     try {
-      // 1. First attempt local Express backend API (if available)
+      // 1. A local server, if one is running, fetches the profile with its own
+      //    credentials. It hands back Bungie's own payload, so both routes end
+      //    up in the same enrichment and the same reconciliation below.
       try {
         const res = await fetch(`/api/inventory/profile?_ts=${Date.now()}`, { cache: 'no-store' });
         if (res.ok) {
           const data = await res.json();
-          if (data.characters && data.characters.length > 0) {
-            setProfileData(data);
+          if (data?.characters?.data) {
+            await parseAndEnrichDirectBungieProfile(data);
             if (showLoading) setLoading(false);
             return;
           }
         }
       } catch (e) {}
 
-      // 2. Direct Bungie.net API querying from browser with cache-busting
+      // 2. Otherwise ask Bungie directly, cache-busted.
       const token = await getValidAuthToken();
-      const settings = getStoredSettings();
+      const settings = await ensureApiKey();
       const session = getStoredAuthSession().session;
 
       if (!token || !session) {
@@ -377,6 +433,9 @@ export default function GuardianManager({
         itemInstanceId: it.itemInstanceId,
         itemHash: it.itemHash,
         bucketHash: it.bucketHash,
+        // Where this item equips, regardless of where it is stored. The bundled
+        // manifest predates this field, so the live definition backs it up.
+        equipBucketHash: def.bucketTypeHash ?? liveDef?.bucketTypeHash ?? null,
         slot: detectedSlot,
         ammoType: def.ammoType,
         name: def.name || `Item #${hash}`,
@@ -453,7 +512,7 @@ export default function GuardianManager({
 
     const vault = (data.profileInventory?.data?.items || []).map(enrichItem);
 
-    setProfileData({
+    setProfile({
       profileInfo: data.profile?.data?.userInfo,
             characters,
       vault
@@ -510,7 +569,7 @@ export default function GuardianManager({
     try {
       const token = await getValidAuthToken();
       if (!token) return { ok: false, message: 'Your Bungie.net session expired. Sign in again.' };
-      const settings = getStoredSettings();
+      const settings = await ensureApiKey();
 
       const res = await fetch(directUrl, {
         method: 'POST',
@@ -560,14 +619,22 @@ export default function GuardianManager({
    */
   const applyOptimistic = (fn) => {
     let previous = null;
-    setProfileData(prev => {
+    const token = {};
+    setProfile(prev => {
       if (!prev) return prev;
       const next = fn(prev);
       if (!next) return prev;
       previous = prev;
       return next;
-    });
-    return () => { if (previous) setProfileData(previous); };
+    }, token);
+
+    return () => {
+      // Rewinding to a whole snapshot is only safe while this is still the most
+      // recent change. Once another action or a refetch has landed, that state
+      // is newer than anything this rollback knows, so leave it alone -- the
+      // caller refetches immediately either way.
+      if (previous && lastWriteRef.current === token) setProfile(previous);
+    };
   };
 
   /** Does this character already wear a conflicting exotic of the same family? */
@@ -581,10 +648,28 @@ export default function GuardianManager({
     });
   };
 
-  const finishAction = (message) => {
-    setActionLoading(null);
+  /**
+   * The platform an action has to be addressed to. It comes from the profile
+   * we are looking at; the stored session is the fallback. Guessing a platform
+   * sends the action to an account that does not exist, so a missing one is an
+   * error rather than a default.
+   */
+  const getMembershipType = () => {
+    const fromProfile = profileDataRef.current?.profileInfo?.membershipType;
+    if (fromProfile) return fromProfile;
+    const session = getStoredAuthSession().session;
+    return session?.user?.destinyMemberships?.[0]?.membershipType || null;
+  };
+
+  /**
+   * Close out an action: clear its spinner and report what happened. `forId`
+   * keeps a finishing action from clearing the spinner of one still running.
+   */
+  const finishAction = (message, forId) => {
+    setActionLoading(prev => (forId === undefined || prev === forId ? null : prev));
     setStatusMessage(message);
-    setTimeout(() => setStatusMessage(null), 4000);
+    if (statusTimerRef.current) clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = setTimeout(() => setStatusMessage(null), 4000);
   };
 
   /**
@@ -593,9 +678,16 @@ export default function GuardianManager({
    */
   const handleTransferItem = async (item, transferToVault = false, options = {}) => {
     const { chained = false } = options;
-    const character = profileData?.characters?.[selectedCharacterIndex];
+    const profile = profileDataRef.current;
+    const character = profile?.characters?.[selectedCharacterIndex];
     if (!character || !item?.itemInstanceId) return false;
     const characterId = character.characterId;
+
+    const membershipType = getMembershipType();
+    if (!membershipType) {
+      if (!chained) finishAction('Sign in again -- the app does not know which platform to act on.');
+      return false;
+    }
 
     // An equipped item cannot be moved to the vault; the game requires it to be
     // unequipped first, and pretending otherwise leaves a hole in the UI.
@@ -626,7 +718,7 @@ export default function GuardianManager({
     const result = await runInventoryAction({
       proxyPath: '/api/inventory/transfer',
       proxyBody: {
-        membershipType: profileData.profileInfo?.membershipType,
+        membershipType,
         characterId,
         itemReferenceHash: item.itemHash,
         itemInstanceId: item.itemInstanceId,
@@ -639,7 +731,7 @@ export default function GuardianManager({
         stackSize: 1,
         transferToVault,
         characterId,
-        membershipType: profileData.profileInfo?.membershipType || 3
+        membershipType
       }
     });
 
@@ -647,7 +739,7 @@ export default function GuardianManager({
       // Put the UI back where it was, then confirm against Bungie.
       pendingTransfersRef.current.delete(item.itemInstanceId);
       revert();
-      if (!chained) finishAction(result.message);
+      if (!chained) finishAction(result.message, item.itemInstanceId);
       fetchLiveProfile(false);
       return false;
     }
@@ -661,7 +753,10 @@ export default function GuardianManager({
     });
 
     if (!chained) {
-      finishAction(transferToVault ? `${item.name} moved to the vault.` : `${item.name} pulled to your ${character.classType}.`);
+      finishAction(
+        transferToVault ? `${item.name} moved to the vault.` : `${item.name} pulled to your ${character.classType}.`,
+        item.itemInstanceId
+      );
       scheduleProfileRefresh();
     }
     return true;
@@ -672,14 +767,21 @@ export default function GuardianManager({
    * Resolves to true only when Bungie confirmed the equip.
    */
   const handleEquipItem = async (itemInstanceId) => {
-    const character = profileData?.characters?.[selectedCharacterIndex];
+    const profile = profileDataRef.current;
+    const character = profile?.characters?.[selectedCharacterIndex];
     if (!character || !itemInstanceId) return false;
     const characterId = character.characterId;
+
+    const membershipType = getMembershipType();
+    if (!membershipType) {
+      finishAction('Sign in again -- the app does not know which platform to act on.');
+      return false;
+    }
 
     if ((character.equipped || []).some(it => it.itemInstanceId === itemInstanceId)) return true;
 
     const inBag = (character.bag || []).find(it => it.itemInstanceId === itemInstanceId);
-    const inVault = (profileData.vault || []).find(it => it.itemInstanceId === itemInstanceId);
+    const inVault = (profile.vault || []).find(it => it.itemInstanceId === itemInstanceId);
     const item = inBag || inVault;
 
     if (!item) {
@@ -695,7 +797,7 @@ export default function GuardianManager({
     if (inVault && !inBag) {
       const moved = await handleTransferItem(item, false, { chained: true });
       if (!moved) {
-        finishAction(`Could not pull ${item.name} from the vault.`);
+        finishAction(`Could not pull ${item.name} from the vault.`, itemInstanceId);
         return false;
       }
     }
@@ -730,7 +832,7 @@ export default function GuardianManager({
     const result = await runInventoryAction({
       proxyPath: '/api/inventory/equip',
       proxyBody: {
-        membershipType: profileData.profileInfo?.membershipType,
+        membershipType,
         characterId,
         itemInstanceId
       },
@@ -738,29 +840,38 @@ export default function GuardianManager({
       directBody: {
         itemId: itemInstanceId,
         characterId,
-        membershipType: profileData.profileInfo?.membershipType || 3
+        membershipType
       }
     });
 
     if (!result.ok) {
       pendingEquipsRef.current.delete(itemInstanceId);
       revert();
-      finishAction(result.message);
+      finishAction(result.message, itemInstanceId);
       fetchLiveProfile(false);
       return false;
     }
 
     pendingEquipsRef.current.set(itemInstanceId, { characterId, timestamp: Date.now() });
-    finishAction(`${item.name} equipped.`);
+    finishAction(`${item.name} equipped.`, itemInstanceId);
     scheduleProfileRefresh();
     return true;
   };
 
   const handleEquipLoadout = async (loadoutIndex) => {
-    const character = profileData?.characters?.[selectedCharacterIndex];
+    const profile = profileDataRef.current;
+    const character = profile?.characters?.[selectedCharacterIndex];
     if (!character) return false;
     const characterId = character.characterId;
-    const loadout = character.loadouts?.[loadoutIndex];
+
+    const membershipType = getMembershipType();
+    if (!membershipType) {
+      finishAction('Sign in again -- the app does not know which platform to act on.');
+      return false;
+    }
+    // `loadouts` skips empty slots, so the in-game index the API needs is not a
+    // position in that list.
+    const loadout = character.loadouts?.find(ld => ld.index === loadoutIndex);
 
     setActionLoading(`loadout_${loadoutIndex}`);
     setStatusMessage(`Equipping ${loadout?.name || `loadout ${loadoutIndex + 1}`}...`);
@@ -785,7 +896,7 @@ export default function GuardianManager({
     const result = await runInventoryAction({
       proxyPath: '/api/inventory/equip-loadout',
       proxyBody: {
-        membershipType: profileData.profileInfo?.membershipType,
+        membershipType,
         characterId,
         loadoutIndex
       },
@@ -793,14 +904,14 @@ export default function GuardianManager({
       directBody: {
         loadoutIndex,
         characterId,
-        membershipType: profileData.profileInfo?.membershipType || 3
+        membershipType
       }
     });
 
     if (!result.ok) {
       (loadout?.items || []).forEach(it => pendingEquipsRef.current.delete(it.itemInstanceId));
       revert();
-      finishAction(result.message);
+      finishAction(result.message, `loadout_${loadoutIndex}`);
       fetchLiveProfile(false);
       return false;
     }
@@ -808,7 +919,7 @@ export default function GuardianManager({
     (loadout?.items || []).forEach(it => {
       if (it.itemInstanceId) pendingEquipsRef.current.set(it.itemInstanceId, { characterId, timestamp: Date.now() });
     });
-    finishAction(`${loadout?.name || `Loadout ${loadoutIndex + 1}`} equipped.`);
+    finishAction(`${loadout?.name || `Loadout ${loadoutIndex + 1}`} equipped.`, `loadout_${loadoutIndex}`);
     scheduleProfileRefresh();
     return true;
   };
@@ -1205,16 +1316,13 @@ export default function GuardianManager({
 
                   </div>
 
-                  {/* Transfer to Vault Footer */}
+                  {/* The game cannot store an equipped item, so this card offers
+                      no vault action -- only the reason there isn't one. */}
                   <div className="p-2 bg-[#0e131d] border-t border-[#1e2638]">
-                    <button
-                      disabled={actionLoading === item.itemInstanceId}
-                      onClick={() => handleTransferItem(item, true)}
-                      className="w-full py-1.5 rounded-lg bg-[#121722] hover:bg-slate-800 text-slate-300 text-xs font-mono border border-[#1e2638] flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
-                    >
-                      <Box className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Transfer to Vault</span>
-                    </button>
+                    <p className="text-[11px] text-slate-500 font-mono flex items-center justify-center gap-1.5 text-center">
+                      <Box className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                      <span>Equip something else here to vault this</span>
+                    </p>
                   </div>
 
                 </div>
@@ -1418,16 +1526,13 @@ export default function GuardianManager({
 
                     </div>
 
-                    {/* Transfer to Vault Footer */}
+                    {/* The game cannot store an equipped item, so this card offers
+                        no vault action -- only the reason there isn't one. */}
                     <div className="p-2 bg-[#0e131d] border-t border-[#1e2638]">
-                      <button
-                        disabled={actionLoading === item.itemInstanceId}
-                        onClick={() => handleTransferItem(item, true)}
-                        className="w-full py-1.5 rounded-lg bg-[#121722] hover:bg-slate-800 text-slate-300 text-xs font-mono border border-[#1e2638] flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
-                      >
-                        <Box className="w-3.5 h-3.5 text-amber-400" />
-                        <span>Transfer to Vault</span>
-                      </button>
+                      <p className="text-[11px] text-slate-500 font-mono flex items-center justify-center gap-1.5 text-center">
+                        <Box className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                        <span>Equip something else here to vault this</span>
+                      </p>
                     </div>
 
                   </div>
@@ -1442,7 +1547,6 @@ export default function GuardianManager({
               activeChar={activeChar}
               vault={profileData?.vault || []}
               onEquipItem={handleEquipItem}
-              onTransferItem={handleTransferItem}
               onOpenInfo={onOpenInfo}
               onSelectArmor={onSelectArmor}
             />
@@ -1653,7 +1757,7 @@ export default function GuardianManager({
 
           {/* Vault Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {filteredVault.slice(0, 80).map((item) => {
+            {filteredVaultItems.slice(0, 80).map((item) => {
               const tierInfo = getTierInfo(item.tierTypeName);
               const damageInfo = getDamageInfo(item.damageType);
 

@@ -83,8 +83,13 @@ export function equipSlotKey(item) {
   // A bucket that is not an equipment slot -- mods, consumables, the postmaster
   // -- has already answered: those items equip nowhere, whatever they are
   // called. Only the vault (and an item with no bucket at all, such as a
-  // manifest entry) needs the display-name fallback.
+  // manifest entry) needs the fallbacks below.
   if (bucketHash !== null && bucketHash !== VAULT_BUCKET_HASH) return null;
+
+  // Stored items still know the slot they equip into, if their definition
+  // reached us. That is exact, so it comes before reading display names.
+  const fromDefinition = slotKeyFromBucketHash(item.equipBucketHash);
+  if (fromDefinition) return fromDefinition;
 
   for (const field of [item.armorSlot, item.slot, item.itemTypeDisplayName]) {
     const fromText = slotKeyFromText(field);

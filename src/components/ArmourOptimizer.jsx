@@ -21,7 +21,6 @@ export default function ArmourOptimizer({
   activeChar,
   vault = [],
   onEquipItem,
-  onTransferItem,
   onSelectArmor
 }) {
   const [targetStats, setTargetStats] = useState({
@@ -173,15 +172,13 @@ export default function ArmourOptimizer({
         if (!piece.itemInstanceId) continue;
         if (piece.location === 'equipped') continue;
 
-        // Bungie cannot equip straight out of the vault -- the piece has to
-        // reach the character's inventory first.
-        if (piece.location === 'vault') {
-          setBuildingStatus(`Pulling ${piece.name} from vault...`);
-          const moved = await onTransferItem?.(piece, false);
-          if (moved === false) throw new Error(`Could not pull ${piece.name} from the vault`);
-        }
+        // Equipping owns the vault pull as well: a piece can only reach a slot
+        // through the character's inventory, and doing that here too would race
+        // the equip's own view of where the piece is.
+        setBuildingStatus(piece.location === 'vault'
+          ? `Pulling ${piece.name} from the vault...`
+          : `Equipping ${piece.name}...`);
 
-        setBuildingStatus(`Equipping ${piece.name}...`);
         const equipped = await onEquipItem?.(piece.itemInstanceId);
         if (equipped === false) throw new Error(`Could not equip ${piece.name}`);
       }
