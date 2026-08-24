@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Zap, Check, RotateCcw, AlertCircle, Lock, Unlock, Ban, X } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
+import { useDeepArmorSearch } from '../utils/useDeepArmorSearch';
 import {
   STAT_KEYS,
   STAT_META,
@@ -12,6 +13,8 @@ import {
   ARMOR_SLOTS,
   normaliseStats,
   buildComboIndex,
+  chooseSlotCaps,
+  COMBO_BUDGET,
   pieceKey,
   computeStatRanges,
   rankBuilds,
@@ -119,13 +122,18 @@ export default function ArmourOptimizer({
    * is pinned, so it survives every target tweak. That is what keeps the
    * ranges below responsive while sliders move.
    */
+  const indexOptions = useMemo(
+    () => ({ exoticHash: selectedExoticHash, lockedPieces, excludedPieces }),
+    [selectedExoticHash, lockedPieces, excludedPieces]
+  );
+
   const comboIndex = useMemo(
     () => buildComboIndex(filteredPools, {
-      exoticHash: selectedExoticHash,
-      lockedPieces,
-      excludedPieces
+      ...indexOptions,
+      slotCaps: chooseSlotCaps(filteredPools, COMBO_BUDGET.INSTANT),
+      maxCombos: COMBO_BUDGET.INSTANT
     }),
-    [filteredPools, selectedExoticHash, lockedPieces, excludedPieces]
+    [filteredPools, indexOptions]
   );
 
   const modOptions = useMemo(
@@ -137,19 +145,35 @@ export default function ArmourOptimizer({
    * For each stat: the lowest and highest value still reachable while the
    * other five targets hold. Recomputed on every edit.
    */
-  const { ranges, anyFeasible } = useMemo(
+  const instant = useMemo(
     () => computeStatRanges(comboIndex, targetStats, modOptions),
     [comboIndex, targetStats, modOptions]
   );
 
+  const instantBuilds = useMemo(
+    () => rankBuilds(comboIndex, targetStats, modOptions, 10),
+    [comboIndex, targetStats, modOptions]
+  );
+
+  /**
+   * A far larger search runs in a worker against the same pools. Until it
+   * answers -- and whenever the player moves a target faster than it can keep
+   * up -- the instant answer above is what is on screen.
+   */
+  const deep = useDeepArmorSearch({
+    pools: filteredPools,
+    indexOptions,
+    targets: targetStats,
+    modOptions
+  });
+
+  const { ranges, anyFeasible } = deep.result || instant;
+  const builds = deep.result ? deep.result.builds : instantBuilds;
+  const searchDepth = deep.result ? 'deep' : 'instant';
+
   const rangeByKey = useMemo(
     () => Object.fromEntries(ranges.map(r => [r.key, r])),
     [ranges]
-  );
-
-  const builds = useMemo(
-    () => rankBuilds(comboIndex, targetStats, modOptions, 10),
-    [comboIndex, targetStats, modOptions]
   );
 
   const togglePiece = (setter, other, key) => {
@@ -175,8 +199,11 @@ export default function ArmourOptimizer({
     ...excludedPieces.map(k => ({ key: k, kind: 'exclude', piece: piecesByKey.get(k) }))
   ];
 
-  const searchedPerSlot = (comboIndex.coverage || []).reduce((acc, c) => acc + c.considered, 0);
-  const availablePerSlot = (comboIndex.coverage || []).reduce((acc, c) => acc + c.available, 0);
+  // Report on whichever search the numbers on screen actually came from.
+  const activeCoverage = (deep.result && deep.coverage) ? deep.coverage : comboIndex;
+  const searchedPieces = (activeCoverage.coverage || []).reduce((acc, c) => acc + c.considered, 0);
+  const availablePieces = (activeCoverage.coverage || []).reduce((acc, c) => acc + c.available, 0);
+  const searchTruncated = !!activeCoverage.truncated;
 
   const unreachable = ranges.filter(r => !r.targetReachable && r.target > 0);
 
@@ -285,12 +312,16 @@ export default function ArmourOptimizer({
           Ranges below show what each stat can still reach with your armour once the other five targets are met.
           Mods are assumed, not chosen: five general slots (+10 major / +{MINOR_MOD_VALUE} minor, one per piece) plus +3 per artifice slot.
           Fragments and armour set perks stack on top of these numbers.
-          {comboIndex.truncated && (
+          {' '}
+          {searchTruncated ? (
             <>
-              {' '}Deep vault: searching the {searchedPerSlot} most useful pieces per slot
-              (of {availablePerSlot}). The highest and lowest roll of every stat is always included,
-              so the range ends are exact, but an awkward mid-range combination can be missed.
+              Searching {searchedPieces} of your {availablePieces} pieces
+              {searchDepth === 'instant' && deep.available ? ' while a deeper pass runs' : ''}.
+              Every stat's highest and lowest roll is always included, so the range ends are
+              exact; an awkward mid-range combination can be missed.
             </>
+          ) : (
+            <>Searching all {availablePieces} of your pieces.</>
           )}
         </p>
 

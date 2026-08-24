@@ -220,6 +220,52 @@ export function shortlistSlot(pieces, cap = 12) {
  */
 export const DEFAULT_SLOT_CAPS = { helmet: 12, gauntlets: 12, chest: 12, legs: 12, classItem: 6 };
 
+/**
+ * Combination budgets, in combos.
+ *
+ * Exhaustive search is not on the table for a large vault: five slots at a
+ * hundred candidates each is 1e10 combinations. Pareto reduction does not help
+ * either -- armour rolls against a fixed stat budget, so a lower roll in one
+ * stat is always paid for by a higher one elsewhere and essentially no piece is
+ * dominated in six dimensions (measured: zero dominating pairs in a realistic
+ * hundred-piece pool).
+ *
+ * So the search is bounded by time instead, and the caps are chosen to fit.
+ * Most players' per-class, per-slot pools are small enough that DEEP covers
+ * them completely -- `truncated` says whether that happened.
+ */
+export const COMBO_BUDGET = {
+  /** Main thread, has to keep up with a dragged slider. */
+  INSTANT: 250000,
+  /** Worker, runs while the instant answer is already on screen. */
+  DEEP: 3000000
+};
+
+/**
+ * Largest per-slot caps whose product fits the budget.
+ *
+ * Starts from searching every piece and only trims the slot that is currently
+ * costing the most, so the pools that fit whole stay whole.
+ */
+export function chooseSlotCaps(pools, budget = COMBO_BUDGET.INSTANT) {
+  const caps = {};
+  ARMOR_SLOTS.forEach(slot => { caps[slot] = Math.max(1, (pools[slot] || []).length); });
+
+  const product = () => ARMOR_SLOTS.reduce((acc, slot) => acc * caps[slot], 1);
+
+  // Trimming the biggest slot first keeps the cut as even as possible, which
+  // loses less than repeatedly shaving one slot down to nothing.
+  let guard = 0;
+  while (product() > budget && guard++ < 10000) {
+    let biggest = ARMOR_SLOTS[0];
+    ARMOR_SLOTS.forEach(slot => { if (caps[slot] > caps[biggest]) biggest = slot; });
+    if (caps[biggest] <= 1) break;
+    caps[biggest]--;
+  }
+
+  return caps;
+}
+
 /** Stable identity for a specific armour instance the player pinned or vetoed. */
 export function pieceKey(piece) {
   return String(piece?.itemInstanceId ?? piece?.itemHash ?? piece?.id ?? '');
