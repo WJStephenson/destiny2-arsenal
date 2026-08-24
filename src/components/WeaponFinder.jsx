@@ -910,52 +910,54 @@ export default function WeaponFinder({
                     </LongPressable>
                   )}
 
-                  {/* The roll as it actually reads: a column per socket, perks
-                      as icons. Tap opens the perk; hold toggles it as a filter,
-                      and an active filter stays highlighted here. */}
-                  <div className="flex gap-1.5">
-                    {w.socketColumns
-                      .filter(c => ['Perk Column 3', 'Perk Column 4'].includes(c.type))
-                      .map((col, idx) => (
-                        <div key={idx} className="flex flex-col items-center gap-1">
-                          {/* A browse card is a preview, not the full roll --
-                              the modal shows every option. Five keeps the card
-                              from growing taller than the weapon it describes. */}
-                          {col.perks.slice(0, 5).map((p) => {
-                            const isTarget = selectedPerks.some(sp => sp.toLowerCase() === p.name.toLowerCase());
-                            const info = {
-                              name: p.name,
-                              category: p.category || 'Perk',
-                              description: p.description,
-                              icon: p.icon,
-                              stats: p.stats,
-                              isEnhanced: p.isEnhanced,
-                              type: 'perk'
-                            };
-                            return (
-                              <LongPressable
-                                key={p.hash}
-                                onClick={(e) => { e.stopPropagation(); onOpenInfo?.(info); }}
-                                onLongPress={(e) => { e.stopPropagation(); addPerk(p.name); }}
-                                title={`${p.name}${p.isEnhanced ? ' (Enhanced)' : ''} — hold to filter`}
-                                className={`relative justify-center w-7 h-7 rounded-full transition-all hover:scale-110 active:scale-95 border ${
-                                  isTarget
-                                    ? 'border-amber-400 ring-1 ring-amber-400 bg-amber-500/20'
-                                    : 'border-slate-700/60 bg-slate-800/80 hover:border-amber-400'
-                                }`}
-                              >
-                                <PerkIcon perk={p} className="w-5 h-5" />
-                              </LongPressable>
-                            );
-                          })}
-                          {col.perks.length > 5 && (
-                            <span className="text-[9px] text-slate-500 font-mono">
-                              +{col.perks.length - 5}
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                  </div>
+                  {/* A card only shows the perks that answer the current perk
+                      filter -- the reason this weapon is in the list. The full
+                      roll belongs to the inspect view, where there is room for
+                      it. With no perk filter set there is nothing to justify,
+                      so the block does not render at all.
+
+                      Matches are looked for in every socket, not just the two
+                      trait columns, because a barrel or magazine can be what
+                      was filtered on. Columns are kept so a match still shows
+                      which socket it sits in. */}
+                  {matchingPerks.length > 0 && (
+                    <div className="flex gap-1.5 items-start">
+                      {w.socketColumns
+                        .map(col => ({
+                          type: col.type,
+                          perks: (col.perks || []).filter(p =>
+                            selectedPerks.some(sp => sp.toLowerCase() === p.name.toLowerCase())
+                          )
+                        }))
+                        .filter(col => col.perks.length > 0)
+                        .map((col, idx) => (
+                          <div key={idx} className="flex flex-col items-center gap-1">
+                            {col.perks.map((p) => {
+                              const info = {
+                                name: p.name,
+                                category: p.category || 'Perk',
+                                description: p.description,
+                                icon: p.icon,
+                                stats: p.stats,
+                                isEnhanced: p.isEnhanced,
+                                type: 'perk'
+                              };
+                              return (
+                                <LongPressable
+                                  key={p.hash}
+                                  onClick={(e) => { e.stopPropagation(); onOpenInfo?.(info); }}
+                                  onLongPress={(e) => { e.stopPropagation(); removePerk(p.name); }}
+                                  title={`${p.name}${p.isEnhanced ? ' (Enhanced)' : ''} — ${col.type} — hold to drop this filter`}
+                                  className="relative justify-center w-7 h-7 rounded-full border border-amber-400 ring-1 ring-amber-400 bg-amber-500/20 transition-all hover:scale-110 active:scale-95"
+                                >
+                                  <PerkIcon perk={p} className="w-5 h-5" />
+                                </LongPressable>
+                              );
+                            })}
+                          </div>
+                        ))}
+                    </div>
+                  )}
 
                 </div>
 

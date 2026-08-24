@@ -20,6 +20,21 @@ import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/des
 import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
 
+/**
+ * Column headers have one line at roughly seven characters before they
+ * truncate, and the raw names collapse into unreadable stubs there -- two
+ * different sockets both render as "PERK CO...". These are the short forms;
+ * anything unlisted falls back to its own name.
+ */
+const COLUMN_LABELS = {
+  'Barrel/Sight': 'BARREL',
+  'Magazine/Battery': 'MAG',
+  'Perk Column 3': 'PERK 1',
+  'Perk Column 4': 'PERK 2',
+  'Trait': 'TRAIT',
+  'Origin Trait': 'ORIGIN'
+};
+
 export default function WeaponModal({ 
   weapon, 
   onClose, 
@@ -316,7 +331,7 @@ export default function WeaponModal({
                       className="text-[9px] font-bold text-slate-500 uppercase tracking-wider font-mono text-center truncate border-b border-[#20293a] pb-1"
                       title={`${col.type} (${col.perks?.length || 0})`}
                     >
-                      {col.type}
+                      {COLUMN_LABELS[col.type] || col.type}
                     </div>
 
                     <div className="flex flex-col items-center gap-1.5">
