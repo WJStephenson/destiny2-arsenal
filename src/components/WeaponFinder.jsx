@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Search, 
   Filter, 
@@ -26,7 +26,7 @@ import {
   Info
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery } from '../utils/destiny-helpers';
-import { searchWeaponsClient, getSuggestionsClient } from '../utils/client-manifest';
+import { searchWeaponsClient, getSuggestionsClient, searchPerksClient } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
 
 export default function WeaponFinder({ 
@@ -49,7 +49,6 @@ export default function WeaponFinder({
   const [selectedDamageTypes, setSelectedDamageTypes] = useState([]);
   const [selectedSlots, setSelectedSlots] = useState([]);
   const [selectedTiers, setSelectedTiers] = useState([]);
-  const [selectedAmmoTypes, setSelectedAmmoTypes] = useState([]);
   const [selectedSources, setSelectedSources] = useState([]);
   const [selectedArchetypes, setSelectedArchetypes] = useState([]);
   const [craftableOnly, setCraftableOnly] = useState(false);
@@ -112,7 +111,6 @@ export default function WeaponFinder({
     selectedDamageTypes, 
     selectedSlots, 
     selectedTiers, 
-    selectedAmmoTypes, 
     selectedSources,
     selectedArchetypes,
     craftableOnly,
@@ -135,7 +133,6 @@ export default function WeaponFinder({
         damageType: selectedDamageTypes,
         slot: selectedSlots,
         tier: selectedTiers,
-        ammoType: selectedAmmoTypes,
         sourceCategory: selectedSources,
         archetype: selectedArchetypes,
         craftable: craftableOnly,
@@ -211,7 +208,6 @@ export default function WeaponFinder({
     setSelectedDamageTypes([]);
     setSelectedSlots([]);
     setSelectedTiers([]);
-    setSelectedAmmoTypes([]);
     setSelectedSources([]);
     setSelectedArchetypes([]);
     setCraftableOnly(false);
@@ -236,6 +232,35 @@ export default function WeaponFinder({
     'Heal Clip', 'Firefly', 'Explosive Payload', 'Demolitionist',
     'Frenzy', 'Target Lock', 'Hatchling', 'Headstone'
   ];
+
+  /**
+   * Perk suggestions come from the perk catalogue, not from the weapon filter
+   * metadata. perkColumns only exists in the server-generated filters.json --
+   * the client-side fallback has no such key, so reading it there returned
+   * nothing for every query with no visible error. The column lists stay as a
+   * fallback for the case where the catalogue has not loaded.
+   */
+  const perkMatches = useMemo(() => {
+    const q = perkSearchInput.trim().toLowerCase();
+    if (!q) return [];
+
+    const fromCatalogue = searchPerksClient(q)
+      .filter(perk => !selectedPerks.includes(perk.name))
+      .slice(0, 15)
+      .map(perk => ({ name: perk.name, description: perk.description, category: perk.category }));
+
+    if (fromCatalogue.length > 0) return fromCatalogue;
+
+    const seen = new Set();
+    const fallback = [];
+    for (const name of Object.values(filtersMetadata?.perkColumns || {}).flat()) {
+      if (seen.has(name) || selectedPerks.includes(name)) continue;
+      seen.add(name);
+      if (name.toLowerCase().includes(q)) fallback.push({ name });
+      if (fallback.length >= 15) break;
+    }
+    return fallback;
+  }, [perkSearchInput, selectedPerks, filtersMetadata]);
 
   const removeFrom = (setter, list, value) => {
     setter(list.filter(item => item !== value));
@@ -281,7 +306,6 @@ export default function WeaponFinder({
     selectedDamageTypes.length > 0 || 
     selectedSlots.length > 0 || 
     selectedTiers.length > 0 || 
-    selectedAmmoTypes.length > 0 || 
     selectedSources.length > 0 ||
     selectedArchetypes.length > 0 ||
     craftableOnly || 
@@ -474,23 +498,28 @@ export default function WeaponFinder({
 
               {isPerkDropdownOpen && perkSearchInput.trim() && (
                 <div className="absolute left-0 right-0 top-full mt-1.5 max-h-60 overflow-y-auto bg-[#161c2b] border border-[#28354d] rounded-lg shadow-2xl z-50 p-1">
-                  {Object.values(filtersMetadata?.perkColumns || {})
-                    .flat()
-                    .filter((name, idx, self) => self.indexOf(name) === idx && name.toLowerCase().includes(perkSearchInput.toLowerCase()))
-                    .slice(0, 15)
-                    .map((perkName) => (
-                      <div
-                        key={perkName}
-                        onClick={() => addPerk(perkName)}
-                        className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-amber-500/10 hover:text-amber-300 cursor-pointer text-sm text-slate-200"
-                      >
-                        <span className="flex items-center gap-2">
-                          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                          {perkName}
+                  {perkMatches.length === 0 ? (
+                    <div className="px-3 py-2 text-sm text-slate-500">
+                      No perks match "{perkSearchInput.trim()}"
+                    </div>
+                  ) : perkMatches.map((perk) => (
+                    <div
+                      key={perk.name}
+                      onClick={() => addPerk(perk.name)}
+                      className="flex items-center justify-between gap-3 px-3 py-2 rounded-md hover:bg-amber-500/10 hover:text-amber-300 cursor-pointer text-sm text-slate-200"
+                    >
+                      <span className="flex items-start gap-2 min-w-0">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400 flex-shrink-0 mt-0.5" />
+                        <span className="min-w-0">
+                          <span className="block truncate">{perk.name}</span>
+                          {perk.description && (
+                            <span className="block text-xs text-slate-500 truncate">{perk.description}</span>
+                          )}
                         </span>
-                        <span className="text-xs text-slate-500 font-mono">+ Add filter</span>
-                      </div>
-                    ))}
+                      </span>
+                      <span className="text-xs text-slate-500 font-mono flex-shrink-0">+ Add</span>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

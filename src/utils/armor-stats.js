@@ -220,12 +220,37 @@ export function shortlistSlot(pieces, cap = 12) {
  */
 export const DEFAULT_SLOT_CAPS = { helmet: 12, gauntlets: 12, chest: 12, legs: 12, classItem: 6 };
 
-export function buildComboIndex(pools, { slotCaps = DEFAULT_SLOT_CAPS, maxCombos = 200000, exoticHash = 'any' } = {}) {
+/** Stable identity for a specific armour instance the player pinned or vetoed. */
+export function pieceKey(piece) {
+  return String(piece?.itemInstanceId ?? piece?.itemHash ?? piece?.id ?? '');
+}
+
+/**
+ * @param lockedPieces  instance keys that must appear in every build
+ * @param excludedPieces instance keys that must never appear
+ */
+export function buildComboIndex(pools, {
+  slotCaps = DEFAULT_SLOT_CAPS,
+  maxCombos = 200000,
+  exoticHash = 'any',
+  lockedPieces = [],
+  excludedPieces = []
+} = {}) {
   const wantsExotic = exoticHash !== 'any' && exoticHash !== 'none';
   const matchesLocked = (p) => String(p.itemHash ?? p.id) === String(exoticHash);
+  const locked = new Set(lockedPieces);
+  const excluded = new Set(excludedPieces);
 
   const effectivePools = ARMOR_SLOTS.map(slot => {
-    const pool = pools[slot] || [];
+    let pool = pools[slot] || [];
+
+    // A locked piece settles its slot outright and outranks every other
+    // constraint on it, including the exotic pin.
+    const lockedHere = pool.filter(p => locked.has(pieceKey(p)));
+    if (lockedHere.length > 0) return lockedHere;
+
+    if (excluded.size > 0) pool = pool.filter(p => !excluded.has(pieceKey(p)));
+
     if (exoticHash === 'none') return pool.filter(p => p.tierTypeName !== 'Exotic');
     // Pinning an exotic fixes one slot outright, which also shrinks the search
     // space rather than relying on the shortlist happening to keep that piece.
@@ -236,8 +261,19 @@ export function buildComboIndex(pools, { slotCaps = DEFAULT_SLOT_CAPS, maxCombos
 
   const shortlists = effectivePools.map((pool, i) => shortlistSlot(pool, slotCaps[ARMOR_SLOTS[i]] ?? 12));
 
+  // Report how much of each pool was actually searched. The shortlists always
+  // contain the highest and lowest roll of every stat, so the range endpoints
+  // stay exact -- but a mid-range combination can be missed, and the UI should
+  // be able to say so rather than implying an exhaustive search.
+  const coverage = ARMOR_SLOTS.map((slot, i) => ({
+    slot,
+    considered: shortlists[i].length,
+    available: effectivePools[i].length
+  }));
+  const truncated = coverage.some(c => c.considered < c.available);
+
   if (shortlists.some(list => list.length === 0)) {
-    return { count: 0, stats: new Int16Array(0), picks: new Int32Array(0), artifice: new Uint8Array(0), masterworked: new Uint8Array(0), shortlists };
+    return { count: 0, stats: new Int16Array(0), picks: new Int32Array(0), artifice: new Uint8Array(0), masterworked: new Uint8Array(0), shortlists, coverage, truncated };
   }
 
   const total = shortlists.reduce((acc, list) => acc * list.length, 1);
@@ -295,7 +331,7 @@ export function buildComboIndex(pools, { slotCaps = DEFAULT_SLOT_CAPS, maxCombos
     if (s < 0) break;
   }
 
-  return { count: written, stats, picks, artifice, masterworked, shortlists };
+  return { count: written, stats, picks, artifice, masterworked, shortlists, coverage, truncated };
 }
 
 /**

@@ -676,7 +676,7 @@ export default function GuardianManager({
    * Move an item between the vault and a character.
    * Resolves to true only when Bungie confirmed the move.
    */
-  const handleTransferItem = async (item, transferToVault = false, options = {}) => {
+  const transferItemInternal = async (item, transferToVault = false, options = {}) => {
     const { chained = false } = options;
     const profile = profileDataRef.current;
     const character = profile?.characters?.[selectedCharacterIndex];
@@ -766,7 +766,7 @@ export default function GuardianManager({
    * Equip an item on the selected character.
    * Resolves to true only when Bungie confirmed the equip.
    */
-  const handleEquipItem = async (itemInstanceId) => {
+  const equipItemInternal = async (itemInstanceId) => {
     const profile = profileDataRef.current;
     const character = profile?.characters?.[selectedCharacterIndex];
     if (!character || !itemInstanceId) return false;
@@ -795,7 +795,7 @@ export default function GuardianManager({
     // Bungie cannot equip straight out of the vault -- the piece has to reach
     // the character's inventory first.
     if (inVault && !inBag) {
-      const moved = await handleTransferItem(item, false, { chained: true });
+      const moved = await transferItemInternal(item, false, { chained: true });
       if (!moved) {
         finishAction(`Could not pull ${item.name} from the vault.`, itemInstanceId);
         return false;
@@ -858,7 +858,7 @@ export default function GuardianManager({
     return true;
   };
 
-  const handleEquipLoadout = async (loadoutIndex) => {
+  const equipLoadoutInternal = async (loadoutIndex) => {
     const profile = profileDataRef.current;
     const character = profile?.characters?.[selectedCharacterIndex];
     if (!character) return false;
@@ -923,6 +923,38 @@ export default function GuardianManager({
     scheduleProfileRefresh();
     return true;
   };
+
+  /**
+   * Inventory actions run one at a time.
+   *
+   * Each action reads the profile, applies an optimistic change and can roll
+   * that change back if Bungie rejects it. Two overlapping actions would each
+   * roll back over the other's work, so the UI could show a state neither
+   * request produced. Disabling the button only covered the item being acted
+   * on, which left every other tile live.
+   */
+  const actionInFlightRef = useRef(false);
+
+  const runExclusive = async (fn) => {
+    if (actionInFlightRef.current) return false;
+    actionInFlightRef.current = true;
+    try {
+      return await fn();
+    } finally {
+      actionInFlightRef.current = false;
+    }
+  };
+
+  const handleTransferItem = (item, transferToVault = false, options = {}) =>
+    // A chained pull is already inside an exclusive action.
+    options.chained
+      ? transferItemInternal(item, transferToVault, options)
+      : runExclusive(() => transferItemInternal(item, transferToVault, options));
+
+  const handleEquipItem = (itemInstanceId) => runExclusive(() => equipItemInternal(itemInstanceId));
+
+  const handleEquipLoadout = (loadoutIndex) => runExclusive(() => equipLoadoutInternal(loadoutIndex));
+
 
   if (!authSession?.authenticated) {
     return (
@@ -1279,13 +1311,21 @@ export default function GuardianManager({
                           {slotGroup.bag.map((bagItem) => {
                             const bTier = getTierInfo(bagItem.tierTypeName);
                             const isSwapping = actionLoading === bagItem.itemInstanceId;
+                            // Actions run one at a time, so tiles that are not
+                            // the one in flight read as unavailable rather than
+                            // silently doing nothing when tapped.
+                            const blocked = !!actionLoading && !isSwapping;
 
                             return (
                               <LongPressable
                                 key={bagItem.itemInstanceId}
-                                onClick={() => handleEquipItem(bagItem.itemInstanceId)}
+                                onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
                                 onLongPress={() => onSelectWeapon?.(bagItem.baseItem || bagItem)}
-                                className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} hover:border-amber-400 p-0.5 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center overflow-hidden`}
+                                className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
+                                  blocked
+                                    ? 'opacity-40 cursor-not-allowed'
+                                    : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
+                                }`}
                                 title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
                               >
                                 {bagItem.icon ? (
@@ -1489,13 +1529,18 @@ export default function GuardianManager({
                             {slotGroup.bag.map((bagItem) => {
                               const bTier = getTierInfo(bagItem.tierTypeName);
                               const isSwapping = actionLoading === bagItem.itemInstanceId;
+                              const blocked = !!actionLoading && !isSwapping;
 
                               return (
                                 <LongPressable
                                   key={bagItem.itemInstanceId}
-                                  onClick={() => handleEquipItem(bagItem.itemInstanceId)}
+                                  onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
                                   onLongPress={() => onSelectArmor?.(bagItem.baseItem || bagItem)}
-                                  className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} hover:border-amber-400 p-0.5 flex-shrink-0 cursor-pointer transition-all hover:scale-105 active:scale-95 shadow-sm flex items-center justify-center overflow-hidden`}
+                                  className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
+                                    blocked
+                                      ? 'opacity-40 cursor-not-allowed'
+                                      : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
+                                  }`}
                                   title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
                                 >
                                   {bagItem.icon ? (
@@ -1625,7 +1670,7 @@ export default function GuardianManager({
                   {/* Actions: Equip or Vault */}
                   <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
                     <button
-                      disabled={actionLoading === item.itemInstanceId}
+                      disabled={!!actionLoading}
                       onClick={() => handleEquipItem(item.itemInstanceId)}
                       className="flex-1 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold font-mono transition-colors disabled:opacity-50"
                     >
@@ -1633,7 +1678,7 @@ export default function GuardianManager({
                     </button>
 
                     <button
-                      disabled={actionLoading === item.itemInstanceId}
+                      disabled={!!actionLoading}
                       onClick={() => handleTransferItem(item, true)}
                       className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center gap-1 disabled:opacity-50"
                     >
@@ -1703,7 +1748,7 @@ export default function GuardianManager({
                 </div>
 
                 <button
-                  disabled={actionLoading === `loadout_${ld.index}`}
+                  disabled={!!actionLoading}
                   onClick={() => handleEquipLoadout(ld.index)}
                   className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs font-mono flex items-center justify-center gap-2 transition-colors disabled:opacity-50 shadow-md"
                 >
@@ -1819,7 +1864,7 @@ export default function GuardianManager({
                   {/* Action: Transfer to Active Character */}
                   <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
                     <button
-                      disabled={actionLoading === item.itemInstanceId}
+                      disabled={!!actionLoading}
                       onClick={() => handleTransferItem(item, false)}
                       className="w-full py-1.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold font-mono flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
                     >

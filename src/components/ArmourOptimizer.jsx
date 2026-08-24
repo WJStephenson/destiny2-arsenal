@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Zap, Check, RotateCcw, AlertCircle, Lock, Unlock } from 'lucide-react';
+import { Zap, Check, RotateCcw, AlertCircle, Lock, Unlock, Ban, X } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
 import {
   STAT_KEYS,
@@ -8,9 +8,11 @@ import {
   STAT_TIER_SIZE,
   OVERCHARGE_THRESHOLD,
   MINOR_MOD_VALUE,
+  MASTERWORK_BONUS_PER_PIECE,
   ARMOR_SLOTS,
   normaliseStats,
   buildComboIndex,
+  pieceKey,
   computeStatRanges,
   rankBuilds,
   clampStat
@@ -36,6 +38,9 @@ export default function ArmourOptimizer({
   const [assumeArtifice, setAssumeArtifice] = useState(false);
   const [selectedExoticHash, setSelectedExoticHash] = useState('any');
   const [selectedSetFilter, setSelectedSetFilter] = useState('any');
+  // Instance keys the player pinned into every build, or vetoed entirely.
+  const [lockedPieces, setLockedPieces] = useState([]);
+  const [excludedPieces, setExcludedPieces] = useState([]);
   const [isBuilding, setIsBuilding] = useState(false);
   const [buildingStatus, setBuildingStatus] = useState(null);
 
@@ -115,8 +120,12 @@ export default function ArmourOptimizer({
    * ranges below responsive while sliders move.
    */
   const comboIndex = useMemo(
-    () => buildComboIndex(filteredPools, { exoticHash: selectedExoticHash }),
-    [filteredPools, selectedExoticHash]
+    () => buildComboIndex(filteredPools, {
+      exoticHash: selectedExoticHash,
+      lockedPieces,
+      excludedPieces
+    }),
+    [filteredPools, selectedExoticHash, lockedPieces, excludedPieces]
   );
 
   const modOptions = useMemo(
@@ -143,6 +152,32 @@ export default function ArmourOptimizer({
     [comboIndex, targetStats, modOptions]
   );
 
+  const togglePiece = (setter, other, key) => {
+    // A piece cannot be locked and excluded at once, so setting one clears the
+    // other.
+    other(list => list.filter(k => k !== key));
+    setter(list => (list.includes(key) ? list.filter(k => k !== key) : [...list, key]));
+  };
+
+  const toggleLock = (piece) => togglePiece(setLockedPieces, setExcludedPieces, pieceKey(piece));
+  const toggleExclude = (piece) => togglePiece(setExcludedPieces, setLockedPieces, pieceKey(piece));
+
+  // Pinned and vetoed pieces have to be visible somewhere: an excluded piece
+  // simply stops appearing, and without a list there would be no way to undo it.
+  const piecesByKey = useMemo(() => {
+    const map = new Map();
+    ARMOR_SLOTS.forEach(slot => armorPools[slot].forEach(p => map.set(pieceKey(p), p)));
+    return map;
+  }, [armorPools]);
+
+  const pinnedSummary = [
+    ...lockedPieces.map(k => ({ key: k, kind: 'lock', piece: piecesByKey.get(k) })),
+    ...excludedPieces.map(k => ({ key: k, kind: 'exclude', piece: piecesByKey.get(k) }))
+  ];
+
+  const searchedPerSlot = (comboIndex.coverage || []).reduce((acc, c) => acc + c.considered, 0);
+  const availablePerSlot = (comboIndex.coverage || []).reduce((acc, c) => acc + c.available, 0);
+
   const unreachable = ranges.filter(r => !r.targetReachable && r.target > 0);
 
   const setStat = (key, value) => {
@@ -160,6 +195,8 @@ export default function ArmourOptimizer({
   };
 
   const resetTargets = () => {
+    setLockedPieces([]);
+    setExcludedPieces([]);
     setTargetStats({ weapons: 0, health: 0, classAbility: 0, grenade: 0, superAbility: 0, melee: 0 });
   };
 
@@ -222,7 +259,7 @@ export default function ArmourOptimizer({
                 onChange={(e) => setAssumeMasterwork(e.target.checked)}
                 className="accent-amber-500 w-3.5 h-3.5 rounded cursor-pointer"
               />
-              <span>Assume masterworked</span>
+              <span>Assume masterworked (+{MASTERWORK_BONUS_PER_PIECE}/stat per piece)</span>
             </label>
 
             <label className="flex items-center gap-1.5 text-xs font-mono text-slate-300 bg-[#0b0e14] px-2.5 py-1 rounded-lg border border-[#1e2638] cursor-pointer hover:border-slate-600">
@@ -248,6 +285,13 @@ export default function ArmourOptimizer({
           Ranges below show what each stat can still reach with your armour once the other five targets are met.
           Mods are assumed, not chosen: five general slots (+10 major / +{MINOR_MOD_VALUE} minor, one per piece) plus +3 per artifice slot.
           Fragments and armour set perks stack on top of these numbers.
+          {comboIndex.truncated && (
+            <>
+              {' '}Deep vault: searching the {searchedPerSlot} most useful pieces per slot
+              (of {availablePerSlot}). The highest and lowest roll of every stat is always included,
+              so the range ends are exact, but an awkward mid-range combination can be missed.
+            </>
+          )}
         </p>
 
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1 border-t border-[#1e2638]">
@@ -431,6 +475,40 @@ export default function ArmourOptimizer({
         </div>
       )}
 
+      {pinnedSummary.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 bg-[#121722] border border-[#1e2638] rounded-2xl p-3">
+          <span className="text-[11px] font-mono text-slate-400 uppercase tracking-wider">Pinned:</span>
+          {pinnedSummary.map(({ key, kind, piece }) => (
+            <span
+              key={`${kind}:${key}`}
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${
+                kind === 'lock'
+                  ? 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                  : 'bg-rose-500/15 border-rose-500/40 text-rose-200'
+              }`}
+            >
+              {kind === 'lock' ? <Lock className="w-3 h-3" /> : <Ban className="w-3 h-3" />}
+              <span className="truncate max-w-[160px]">{piece?.name || 'Unknown piece'}</span>
+              <button
+                onClick={() => (kind === 'lock'
+                  ? setLockedPieces(list => list.filter(k => k !== key))
+                  : setExcludedPieces(list => list.filter(k => k !== key)))}
+                className="hover:text-white"
+                aria-label={`Remove ${piece?.name || 'piece'}`}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          ))}
+          <button
+            onClick={() => { setLockedPieces([]); setExcludedPieces([]); }}
+            className="text-xs text-slate-500 hover:text-slate-300 underline font-mono ml-1"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* Results */}
       <div className="space-y-3">
         <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider font-heading px-1">
@@ -496,14 +574,19 @@ export default function ArmourOptimizer({
                 <div className="grid grid-cols-5 gap-2">
                   {build.pieces.map((piece, pIdx) => {
                     const tier = getTierInfo(piece.tierTypeName);
+                    const isLocked = lockedPieces.includes(pieceKey(piece));
                     return (
                       <div
                         key={pIdx}
-                        onClick={() => onSelectArmor?.(piece)}
-                        className={`p-1.5 rounded-xl bg-[#0b0e14] border hover:border-amber-400 transition-all cursor-pointer space-y-1 group ${tier.border}`}
+                        className={`p-1.5 rounded-xl bg-[#0b0e14] border transition-all space-y-1 group ${
+                          isLocked ? 'border-amber-400' : tier.border
+                        }`}
                         title={`${piece.name} (${piece.location})`}
                       >
-                        <div className="relative w-full aspect-square rounded-lg bg-black/60 border border-white/10 overflow-hidden">
+                        <div
+                          onClick={() => onSelectArmor?.(piece)}
+                          className="relative w-full aspect-square rounded-lg bg-black/60 border border-white/10 overflow-hidden cursor-pointer"
+                        >
                           {piece.icon && (
                             <img src={piece.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                           )}
@@ -520,6 +603,25 @@ export default function ArmourOptimizer({
                         </div>
                         <div className="text-[10px] font-bold text-white truncate font-heading text-center">
                           {piece.name}
+                        </div>
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => toggleLock(piece)}
+                            title={isLocked ? 'Unpin this piece' : 'Keep this piece in every build'}
+                            aria-pressed={isLocked}
+                            className={`px-1 py-0.5 rounded ${
+                              isLocked ? 'bg-amber-500 text-black' : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                            }`}
+                          >
+                            <Lock className="w-2.5 h-2.5" />
+                          </button>
+                          <button
+                            onClick={() => toggleExclude(piece)}
+                            title="Never use this piece"
+                            className="px-1 py-0.5 rounded bg-slate-800 text-slate-400 hover:text-rose-400"
+                          >
+                            <Ban className="w-2.5 h-2.5" />
+                          </button>
                         </div>
                       </div>
                     );
