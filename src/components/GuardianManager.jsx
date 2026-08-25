@@ -24,6 +24,7 @@ import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-de
 import { batchResolveSetDefinitions } from '../utils/set-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
 import { describesSameItem } from '../utils/definition-match';
+import { findItemLocation } from '../utils/destiny-inventory-actions';
 import {
   ARMOR_BUCKET_HASHES,
   WEAPON_BUCKET_HASHES,
@@ -36,7 +37,7 @@ import {
 } from '../utils/destiny-buckets';
 import LongPressable from './LongPressable';
 import ArmourOptimizer from './ArmourOptimizer';
-import VaultSlotPickerModal from './VaultSlotPickerModal';
+import SlotPickerModal from './SlotPickerModal';
 
 /** Card headings, which read a little differently from the bare slot names. */
 const WEAPON_SLOT_TITLES = {
@@ -363,13 +364,25 @@ export default function GuardianManager({
       if (it.itemHash) allHashesToResolve.push(it.itemHash);
     });
 
-    const defs = await batchResolveItemDefinitions(allHashesToResolve);
+    // Only ask Bungie for what the bundled manifest cannot already answer.
+    // There is no bulk definition endpoint -- it is one request per hash -- and
+    // a full vault plus every visible socket plug runs to thousands of them,
+    // fired again on every refresh. That is what gets a profile rate-limited,
+    // and a rate-limited profile is one full of nameless, iconless tiles.
+    const unresolvedHashes = allHashesToResolve.filter(h => !getClientItemByHash(h));
+    const defs = await batchResolveItemDefinitions(unresolvedHashes);
 
     // Armour points at its set by hash only, so the set's name and its
     // 2-piece / 4-piece bonuses have to be resolved separately -- otherwise
     // the optimizer can group a set but not say what it is.
     const setDefs = await batchResolveSetDefinitions(
-      Object.values(defs).map(d => d?.setHash).filter(h => h !== null && h !== undefined)
+      [
+        ...Object.values(defs).map(d => d?.setHash),
+        // Bundled entries are no longer fetched from Bungie, so their sets have
+        // to be gathered here or armour the bundle resolves would lose its set
+        // bonuses.
+        ...allHashesToResolve.map(h => getClientItemByHash(h)?.setHash)
+      ].filter(h => h !== null && h !== undefined)
     );
 
     function enrichItem(it) {
@@ -745,9 +758,14 @@ export default function GuardianManager({
    * Resolves to true only when Bungie confirmed the move.
    */
   const transferItemInternal = async (item, transferToVault = false, options = {}) => {
-    const { chained = false } = options;
+    // `characterId` names the character the move is addressed to, which is not
+    // always the one on screen: moving a piece off another Guardian has to be
+    // addressed to that Guardian.
+    const { chained = false, characterId: addressedTo } = options;
     const profile = profileDataRef.current;
-    const character = profile?.characters?.[selectedCharacterIndex];
+    const character = addressedTo
+      ? profile?.characters?.find(c => c.characterId === addressedTo)
+      : profile?.characters?.[selectedCharacterIndex];
     if (!character || !item?.itemInstanceId) return false;
     const characterId = character.characterId;
 
@@ -1012,6 +1030,54 @@ export default function GuardianManager({
       actionInFlightRef.current = false;
     }
   };
+
+  /**
+   * Bring an item to the Guardian on screen, wherever it is now.
+   *
+   * Out of the vault that is one move. Off another Guardian it is two, because
+   * Bungie has no character-to-character transfer: the item goes out to the
+   * vault and comes back. Either way the player asked for one thing, so it
+   * reports as one action.
+   */
+  const pullItemInternal = async (item) => {
+    const profile = profileDataRef.current;
+    const target = profile?.characters?.[selectedCharacterIndex];
+    if (!target || !item?.itemInstanceId) return false;
+
+    const source = findItemLocation(item, profile);
+    if (!source) {
+      finishAction('That item is no longer where the app expected it. Refreshing...');
+      fetchLiveProfile(false);
+      return false;
+    }
+
+    if (source.character?.characterId === target.characterId) {
+      finishAction(`${item.name} is already on your ${target.classType}.`);
+      return true;
+    }
+
+    // The game will not move a piece someone is wearing.
+    if (source.location === 'equipped') {
+      finishAction(`${item.name} is equipped on your ${source.character.classType}. Equip something else there first.`);
+      return false;
+    }
+
+    if (source.location === 'vault') return transferItemInternal(item, false);
+
+    setActionLoading(item.itemInstanceId);
+    const stowed = await transferItemInternal(item, true, {
+      chained: true,
+      characterId: source.character.characterId
+    });
+    if (!stowed) {
+      finishAction(`Could not move ${item.name} off your ${source.character.classType}.`, item.itemInstanceId);
+      return false;
+    }
+
+    return transferItemInternal(item, false);
+  };
+
+  const handlePullItem = (item) => runExclusive(() => pullItemInternal(item));
 
   const handleTransferItem = (item, transferToVault = false, options = {}) =>
     // A chained pull is already inside an exclusive action.
@@ -1299,10 +1365,10 @@ export default function GuardianManager({
                           <button
                             onClick={() => setVaultPickerSlot(slotGroup)}
                             className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 text-[10px] font-bold text-amber-400 font-mono tracking-normal normal-case transition-all shadow-sm"
-                            title={`Add ${slotGroup.title} from Vault`}
+                            title={`Add ${slotGroup.title} from the Vault or another Guardian`}
                           >
                             <Plus className="w-3 h-3 text-amber-400" />
-                            <span>Add from Vault</span>
+                            <span>Add item</span>
                           </button>
                         )}
                       </div>
@@ -1436,7 +1502,7 @@ export default function GuardianManager({
                           <button
                             onClick={() => setVaultPickerSlot(slotGroup)}
                             className="w-11 h-11 rounded-xl bg-[#121722]/80 hover:bg-amber-500/15 border border-dashed border-slate-700 hover:border-amber-500/60 text-slate-400 hover:text-amber-300 p-0.5 flex-shrink-0 transition-all shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer group"
-                            title={`Add ${slotGroup.title} from Vault (${9 - slotGroup.bag.length} spaces left)`}
+                            title={`Add ${slotGroup.title} from the Vault or another Guardian (${9 - slotGroup.bag.length} spaces left)`}
                           >
                             <Plus className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
                             <span className="text-[8px] font-mono leading-none text-slate-400 group-hover:text-amber-300 font-bold">ADD</span>
@@ -1522,10 +1588,10 @@ export default function GuardianManager({
                             <button
                               onClick={() => setVaultPickerSlot(slotGroup)}
                               className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 text-[10px] font-bold text-amber-400 font-mono tracking-normal normal-case transition-all shadow-sm"
-                              title={`Add ${slotGroup.title} from Vault`}
+                              title={`Add ${slotGroup.title} from the Vault or another Guardian`}
                             >
                               <Plus className="w-3 h-3 text-amber-400" />
-                              <span>Add from Vault</span>
+                              <span>Add item</span>
                             </button>
                           )}
                         </div>
@@ -1671,7 +1737,7 @@ export default function GuardianManager({
                             <button
                               onClick={() => setVaultPickerSlot(slotGroup)}
                               className="w-11 h-11 rounded-xl bg-[#121722]/80 hover:bg-amber-500/15 border border-dashed border-slate-700 hover:border-amber-500/60 text-slate-400 hover:text-amber-300 p-0.5 flex-shrink-0 transition-all shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer group"
-                              title={`Add ${slotGroup.title} from Vault (${9 - slotGroup.bag.length} spaces left)`}
+                              title={`Add ${slotGroup.title} from the Vault or another Guardian (${9 - slotGroup.bag.length} spaces left)`}
                             >
                               <Plus className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
                               <span className="text-[8px] font-mono leading-none text-slate-400 group-hover:text-amber-300 font-bold">ADD</span>
@@ -1900,16 +1966,22 @@ export default function GuardianManager({
 
       {/* Vault Slot Picker Modal */}
       {currentPickerSlotGroup && (
-        <VaultSlotPickerModal
+        <SlotPickerModal
           slotGroup={currentPickerSlotGroup}
           activeChar={activeChar}
+          characters={profileData?.characters || []}
           vaultItems={profileData?.vault || []}
           onClose={() => setVaultPickerSlot(null)}
-          onTransfer={(item) => handleTransferItem(item, false)}
+          onTransfer={handlePullItem}
           actionLoading={actionLoading}
-          onSelectWeapon={onSelectWeapon}
-          onSelectArmor={onSelectArmor}
-          onOpenInfo={onOpenInfo}
+          // The live item, not its manifest entry: inspecting from here should
+          // show this roll -- its perks, its stats -- and leave the modal able
+          // to act on the instance the player is looking at.
+          onInspect={(item) => {
+            if (item.isWeapon) onSelectWeapon?.(item);
+            else if (item.isArmor) onSelectArmor?.(item);
+            else onOpenInfo?.(item);
+          }}
         />
       )}
 
