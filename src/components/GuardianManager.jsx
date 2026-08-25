@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Shield, 
   Crosshair, 
@@ -23,6 +23,7 @@ import { ensureApiKey, getStoredAuthSession, getValidAuthToken } from '../utils/
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { batchResolveSetDefinitions } from '../utils/set-definition-cache';
 import { getClientItemByHash, getClientItemByName, initClientManifest } from '../utils/client-manifest';
+import { describesSameItem } from '../utils/definition-match';
 import {
   ARMOR_BUCKET_HASHES,
   WEAPON_BUCKET_HASHES,
@@ -376,19 +377,16 @@ export default function GuardianManager({
       const liveDef = defs[hash] || null;
 
       // The bundled manifest is richer than the live definition, so it is
-      // preferred -- but only when it is describing the same item. Matching by
-      // name is a last resort for hashes the bundle predates: names repeat
-      // across reissues and across slots, so a match is only trusted when both
-      // definitions agree on what kind of item it is.
-      let localDef = getClientItemByHash(hash);
+      // preferred -- but only when it is describing the same item. A hash is
+      // exact; a name is not. Names repeat across slots ('Ankaa Seeker IV' names
+      // an entire set) and across classes ('Arms of Optimacy' exists three
+      // times), so a name match is only trusted once it has been corroborated
+      // against the live definition.
+      const localByHash = getClientItemByHash(hash);
+      let localDef = localByHash;
       if (!localDef && liveDef?.name) {
         const byName = getClientItemByName(liveDef.name);
-        const sameKind = byName && (
-          !liveDef.itemTypeDisplayName ||
-          !byName.itemTypeDisplayName ||
-          byName.itemTypeDisplayName === liveDef.itemTypeDisplayName
-        );
-        if (sameKind) localDef = byName;
+        if (describesSameItem(byName, liveDef)) localDef = byName;
       }
 
       const def = localDef || liveDef || {};
@@ -414,11 +412,22 @@ export default function GuardianManager({
         });
       }
 
+      // Where this item equips, regardless of where it is stored -- the one
+      // thing a vault item's own bucketHash (the vault) cannot say. Both a
+      // hash-matched bundle entry and the live definition are keyed by this
+      // item's hash, so either is exact; a name-matched entry is the last
+      // resort, because it is the only one that could be describing a
+      // different piece of gear.
+      const equipBucketHash = localByHash?.bucketTypeHash
+        ?? liveDef?.bucketTypeHash
+        ?? localDef?.bucketTypeHash
+        ?? null;
+
       // Slot detection. The definition's bucket is authoritative because a
       // vault item's own bucketHash is the vault, not its equipment slot.
       let detectedSlot = def.slot;
       if (!detectedSlot) {
-        const bucketSlot = slotKeyFromBucketHash(it.bucketHash);
+        const bucketSlot = slotKeyFromBucketHash(it.bucketHash) || slotKeyFromBucketHash(equipBucketHash);
         if (WEAPON_SLOT_KEYS.includes(bucketSlot)) detectedSlot = SLOT_LABELS[bucketSlot];
       }
 
@@ -431,9 +440,14 @@ export default function GuardianManager({
       // Bungie ItemState is a bitmask; bit 2 marks a masterworked instance.
       const isMasterwork = ((it.state || 0) & ITEM_STATE_MASTERWORK) !== 0;
 
+      // Which Guardian can wear it. The hash-keyed sources answer for this
+      // item; a name match is only read when neither of them did, since the
+      // same armour name is shared by all three classes often enough to send a
+      // piece to the wrong Guardian's pool.
       // 'Any' means the piece is not class-locked (class items aside), so keep
       // it null rather than filtering the piece out of every Guardian's pool.
-      const classType = def.classType && def.classType !== 'Any' ? def.classType : null;
+      const resolvedClassType = localByHash?.classType ?? liveDef?.classType ?? def.classType;
+      const classType = resolvedClassType && resolvedClassType !== 'Any' ? resolvedClassType : null;
 
       const armorSet = def.setHash !== null && def.setHash !== undefined
         ? setDefs[String(def.setHash)]
@@ -454,13 +468,28 @@ export default function GuardianManager({
         if (fromDef.total > 0) armorStats = fromDef;
       }
 
+      // What kind of gear this is. Only the live definition says so outright:
+      // the bundled manifest keeps weapons and armour in separate lists, so its
+      // entries answer through the fields only one kind carries. A character's
+      // own bucket settles anything neither answered -- but a stored item's
+      // bucket is the vault, which settles nothing, so the slot it equips into
+      // has the last word.
+      const equipSlot = slotKeyFromBucketHash(equipBucketHash);
+      // 'None' is Bungie's way of saying an item has no element, so it is not
+      // one.
+      const element = def.damageType && def.damageType !== 'None' ? def.damageType : null;
+      const isWeapon = !!(def.isWeapon || def.weaponType != null
+        || WEAPON_BUCKET_HASHES.includes(it.bucketHash)
+        || WEAPON_SLOT_KEYS.includes(equipSlot));
+      const isArmor = !!(def.isArmor || def.armorSlot != null
+        || ARMOR_BUCKET_HASHES.includes(it.bucketHash)
+        || ARMOR_SLOT_KEYS.includes(equipSlot));
+
       return {
         itemInstanceId: it.itemInstanceId,
         itemHash: it.itemHash,
         bucketHash: it.bucketHash,
-        // Where this item equips, regardless of where it is stored. The bundled
-        // manifest predates this field, so the live definition backs it up.
-        equipBucketHash: def.bucketTypeHash ?? liveDef?.bucketTypeHash ?? null,
+        equipBucketHash,
         slot: detectedSlot,
         ammoType: def.ammoType,
         name: def.name || `Item #${hash}`,
@@ -469,12 +498,20 @@ export default function GuardianManager({
         screenshot: def.screenshot || null,
         power: inst?.primaryStat?.value || null,
         tierTypeName: def.tierTypeName || 'Legendary',
-        damageType: def.damageType || 'Kinetic',
-        itemTypeDisplayName: def.itemTypeDisplayName || (def.isWeapon ? 'Weapon' : def.isArmor ? 'Armour' : ''),
-        weaponType: def.isWeapon ? (def.weaponType || def.itemTypeDisplayName) : null,
-        armorSlot: def.isArmor ? (def.armorSlot || def.itemTypeDisplayName) : null,
-        isWeapon: def.isWeapon || def.weaponType != null || WEAPON_BUCKET_HASHES.includes(it.bucketHash),
-        isArmor: def.isArmor || def.armorSlot != null || ARMOR_BUCKET_HASHES.includes(it.bucketHash),
+        // Only weapons have an element -- armour reports 'None', and the
+        // bundled manifest does not describe one at all. Defaulting everything
+        // to Kinetic put a Kinetic badge on every piece of armour and matched
+        // all of it on a search for an element.
+        damageType: isWeapon ? (element || 'Kinetic') : element,
+        itemTypeDisplayName: def.itemTypeDisplayName || (isWeapon ? 'Weapon' : isArmor ? 'Armour' : ''),
+        // The bundled manifest flags neither kind, so these read from the kind
+        // resolved above rather than from a flag only the live definition sets
+        // -- otherwise every bundled item lost the type it displays and the
+        // slot name the picker falls back to.
+        weaponType: isWeapon ? (def.weaponType || def.itemTypeDisplayName || null) : null,
+        armorSlot: isArmor ? (def.armorSlot || def.itemTypeDisplayName || null) : null,
+        isWeapon,
+        isArmor,
         isArtifice,
         isMasterwork,
         classType,
@@ -1075,13 +1112,20 @@ export default function GuardianManager({
     bag: bagBySlot[key] || []
   }));
 
-  const currentPickerSlotGroup = useMemo(() => {
+  /**
+   * The slot card the picker is open on, re-read from this render's cards so
+   * the modal counts the space left after each pull instead of the space there
+   * was when it opened. A plain lookup, not a memo: it sits below an early
+   * return, and the cards are rebuilt every render anyway, so a hook here would
+   * change the hook count between the signed-out and signed-in renders and take
+   * the whole screen down with it.
+   */
+  const currentPickerSlotGroup = (() => {
     if (!vaultPickerSlot) return null;
     const key = vaultPickerSlot.key;
-    const isW = WEAPON_SLOT_KEYS.includes(key);
-    const slots = isW ? weaponSlots : armorSlots;
+    const slots = WEAPON_SLOT_KEYS.includes(key) ? weaponSlots : armorSlots;
     return slots.find(s => s.key === key) || vaultPickerSlot;
-  }, [vaultPickerSlot, weaponSlots, armorSlots]);
+  })();
 
   const filteredVaultItems = (profileData?.vault || []).filter(item => {
     if (vaultFilter === 'weapons' && !item.isWeapon) return false;

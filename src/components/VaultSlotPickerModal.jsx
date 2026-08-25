@@ -50,9 +50,19 @@ export default function VaultSlotPickerModal({
   // Filter vault items strictly for this equipment slot and character class
   const relevantVaultItems = useMemo(() => {
     return vaultItems.filter(item => {
-      // Must match slot
+      // Must match slot. The slot comes from the item's own definition, which
+      // is the only thing that can answer for something in the vault -- every
+      // stored item reports the vault as its bucket, not the slot it equips
+      // into.
       const itemSlotKey = equipSlotKey(item);
       if (itemSlotKey !== slotGroup.key) return false;
+
+      // The slot decides the tile; the weapon/armour flags only veto a
+      // contradiction, exactly as the Guardian screen's own slot cards do. A
+      // pipeline that could not work out what kind of gear this is still fills
+      // the picker rather than emptying it.
+      if (isWeaponSlot && item.isArmor) return false;
+      if (isArmorSlot && item.isWeapon) return false;
 
       // For armor, must match active character's class (Titan, Hunter, Warlock or Any)
       if (isArmorSlot && activeChar?.classType) {
@@ -89,7 +99,10 @@ export default function VaultSlotPickerModal({
         const matchesName = item.name?.toLowerCase().includes(q);
         const matchesType = (item.weaponType || item.armorSlot || item.itemTypeDisplayName)?.toLowerCase().includes(q);
         const matchesDamage = item.damageType?.toLowerCase().includes(q);
-        const matchesPerks = item.perks && item.perks.some(p => (p.name || p).toLowerCase().includes(q));
+        const matchesPerks = item.perks && item.perks.some(p => {
+          const perkName = typeof p === 'string' ? p : p?.name;
+          return perkName ? perkName.toLowerCase().includes(q) : false;
+        });
         const matchesSource = item.sourceString?.toLowerCase().includes(q);
         if (!matchesName && !matchesType && !matchesDamage && !matchesPerks && !matchesSource) {
           return false;
@@ -311,7 +324,7 @@ export default function VaultSlotPickerModal({
                 No matching items in Vault
               </h4>
               <p className="text-xs text-slate-500">
-                {search || tierFilter !== 'all' || damageFilter !== 'all' || artificeOnly
+                {search || tierFilter !== 'all' || damageFilter !== 'all' || artificeOnly || masterworkOnly
                   ? 'Try clearing active filters or search terms.'
                   : `You don't have any spare ${slotGroup.title.toLowerCase()} stored in your Vault.`}
               </p>
