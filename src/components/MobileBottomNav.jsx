@@ -2,8 +2,6 @@ import React from 'react';
 import { 
   Crosshair, 
   Shield, 
-  BookOpen, 
-  Scale, 
   Bookmark, 
   Zap 
 } from 'lucide-react';
@@ -11,16 +9,13 @@ import {
 export default function MobileBottomNav({ 
   activeTab, 
   setActiveTab, 
-  compareCount = 0, 
   wishlistCount = 0,
   authSession 
 }) {
   const tabs = [
     { id: 'weapons', label: 'Weapons', icon: Crosshair },
     { id: 'armor', label: 'Armor', icon: Shield },
-    { id: 'guardian', label: 'Vault', icon: Zap, isLive: authSession?.authenticated },
-    { id: 'perks', label: 'Perks', icon: BookOpen },
-    { id: 'compare', label: 'Compare', icon: Scale, count: compareCount },
+    { id: 'guardian', label: 'Guardian', icon: Zap, isLive: authSession?.authenticated },
     { id: 'wishlist', label: 'Saved', icon: Bookmark, count: wishlistCount }
   ];
 

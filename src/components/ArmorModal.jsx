@@ -3,8 +3,16 @@ import { X, Shield, Crown, Sparkles, Award, Layers } from 'lucide-react';
 import { getTierInfo } from '../utils/destiny-helpers';
 import { STAT_META, normaliseStats } from '../utils/armor-stats';
 import LongPressable from './LongPressable';
+import ItemTransferControls from './ItemTransferControls';
 
-export default function ArmorModal({ armor, onClose, onOpenInfo }) {
+export default function ArmorModal({ 
+  armor, 
+  onClose, 
+  onOpenInfo,
+  profileData,
+  onProfileUpdate,
+  onShowToast
+}) {
   if (!armor) return null;
   const tierInfo = getTierInfo(armor.tierTypeName);
 
@@ -95,6 +103,16 @@ export default function ArmorModal({ armor, onClose, onOpenInfo }) {
         {/* Scrollable Body */}
         <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
           
+          {/* Live Inventory & Transfer Controls (If player owns instance(s) of this armor) */}
+          {profileData && (
+            <ItemTransferControls
+              item={armor}
+              profileData={profileData}
+              onProfileUpdate={onProfileUpdate}
+              onShowToast={onShowToast}
+            />
+          )}
+
           {/* Flavor Text */}
           {armor.flavorText && (
             <p className="text-xs sm:text-sm italic text-slate-400 border-l-2 border-amber-500/60 pl-3 leading-relaxed">

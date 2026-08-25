@@ -3,7 +3,6 @@ import {
   X, 
   Sparkles, 
   Bookmark, 
-  Scale, 
   Hammer, 
   Flame, 
   Zap, 
@@ -19,6 +18,7 @@ import {
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge, getAcquisitionHint, withoutDuplicateEnhancedPerks, rollColumns } from '../utils/destiny-helpers';
 import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
+import ItemTransferControls from './ItemTransferControls';
 
 /**
  * Column headers have one line at roughly seven characters before they
@@ -38,10 +38,11 @@ const COLUMN_LABELS = {
 export default function WeaponModal({ 
   weapon, 
   onClose, 
-  onAddToCompare, 
-  isCompared, 
   onSaveWishlist,
-  onOpenInfo 
+  onOpenInfo,
+  profileData,
+  onProfileUpdate,
+  onShowToast
 }) {
   if (!weapon) return null;
 
@@ -182,6 +183,16 @@ export default function WeaponModal({
         {/* Modal Scrollable Body */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
           
+          {/* Live Inventory & Transfer Controls (If player owns instance(s) of this weapon) */}
+          {profileData && (
+            <ItemTransferControls
+              item={weapon}
+              profileData={profileData}
+              onProfileUpdate={onProfileUpdate}
+              onShowToast={onShowToast}
+            />
+          )}
+
           {/* SECTION 1: LIVE ROLLED PERKS ON YOUR WEAPON (If inspecting Guardian item) */}
           {livePerks.length > 0 && (
             <div className="p-4 rounded-xl bg-[#0e131e] border-2 border-amber-500/40 space-y-3 shadow-lg">
@@ -461,18 +472,6 @@ export default function WeaponModal({
         {/* Modal Footer Controls */}
         <div className="p-4 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => onAddToCompare(weapon)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${
-                isCompared 
-                  ? 'bg-emerald-500 text-black font-bold border-emerald-400' 
-                  : 'bg-slate-800 hover:bg-slate-700 border-slate-700 text-slate-200'
-              }`}
-            >
-              <Scale className="w-4 h-4" />
-              <span>{isCompared ? 'Comparing' : 'Compare'}</span>
-            </button>
-
             <button
               onClick={handleSaveToWishlist}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-pink-500/20 hover:bg-pink-500/30 border border-pink-500/40 text-xs font-medium text-pink-300 transition-colors"

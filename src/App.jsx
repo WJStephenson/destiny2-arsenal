@@ -5,8 +5,6 @@ import WeaponModal from './components/WeaponModal';
 import ArmorFinder from './components/ArmorFinder';
 import ArmorModal from './components/ArmorModal';
 import GuardianManager from './components/GuardianManager';
-import PerkEncyclopedia from './components/PerkEncyclopedia';
-import WeaponCompare from './components/WeaponCompare';
 import WishlistManager from './components/WishlistManager';
 import SettingsModal from './components/SettingsModal';
 import OAuthCallback from './components/OAuthCallback';
@@ -32,6 +30,7 @@ export default function App() {
   // Auth Session State (Instantly restored from browser localStorage!)
   const [authSession, setAuthSession] = useState(() => getStoredAuthSession());
   const [isOAuthCallback, setIsOAuthCallback] = useState(false);
+  const [profileData, setProfileData] = useState(null);
 
   // Modals & Info Drawer
   const [selectedWeapon, setSelectedWeapon] = useState(null);
@@ -39,8 +38,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [infoDrawerItem, setInfoDrawerItem] = useState(null);
 
-  // Compare & Wishlist
-  const [compareList, setCompareList] = useState([]);
+  // Wishlist
   const [wishlists, setWishlists] = useState([]);
 
   // Toast notifications
@@ -78,11 +76,6 @@ export default function App() {
 
     fetchStatus();
     fetchFilters();
-
-    try {
-      const savedCompare = sessionStorage.getItem('destiny2_compare_list');
-      if (savedCompare) setCompareList(JSON.parse(savedCompare));
-    } catch (e) {}
   }, []);
 
   const fetchStatus = async () => {
@@ -175,39 +168,6 @@ export default function App() {
     }
   };
 
-  const handleAddToCompare = (weapon) => {
-    setCompareList(prev => {
-      let next;
-      if (prev.some(w => w.id === weapon.id)) {
-        next = prev.filter(w => w.id !== weapon.id);
-        showToast(`Removed ${weapon.name} from comparison`, 'info');
-      } else {
-        if (prev.length >= 4) {
-          showToast('Comparison lab is limited to 4 weapons max', 'warning');
-          return prev;
-        }
-        next = [...prev, weapon];
-        showToast(`Added ${weapon.name} to comparison lab`, 'success');
-      }
-      try { sessionStorage.setItem('destiny2_compare_list', JSON.stringify(next)); } catch (e) {}
-      return next;
-    });
-  };
-
-  const handleRemoveFromCompare = (weaponId) => {
-    setCompareList(prev => {
-      const next = prev.filter(w => w.id !== weaponId);
-      try { sessionStorage.setItem('destiny2_compare_list', JSON.stringify(next)); } catch (e) {}
-      return next;
-    });
-  };
-
-  const handleClearCompare = () => {
-    setCompareList([]);
-    try { sessionStorage.removeItem('destiny2_compare_list'); } catch (e) {}
-    showToast('Cleared comparison lab', 'info');
-  };
-
   const handleSaveWishlist = (roll) => {
     const updated = saveWishlistRoll(roll);
     setWishlists(updated);
@@ -255,7 +215,6 @@ export default function App() {
         setActiveTab={setActiveTab}
         manifestStatus={manifestStatus}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        compareCount={compareList.length}
         wishlistCount={wishlists.length}
         authSession={authSession}
         onLogin={handleLogin}
@@ -267,8 +226,6 @@ export default function App() {
         {activeTab === 'weapons' && (
           <WeaponFinder
             onSelectWeapon={handleSelectWeapon}
-            onAddToCompare={handleAddToCompare}
-            compareList={compareList}
             onSaveWishlist={handleSaveWishlist}
             filtersMetadata={filtersMetadata}
             onOpenInfo={(item) => setInfoDrawerItem(item)}
@@ -291,23 +248,8 @@ export default function App() {
             onLogin={handleLogin}
             onLogout={handleLogout}
             onOpenInfo={(item) => setInfoDrawerItem(item)}
-          />
-        )}
-
-        {activeTab === 'perks' && (
-          <PerkEncyclopedia
-            onSelectWeapon={handleSelectWeapon}
-            onOpenInfo={(item) => setInfoDrawerItem(item)}
-          />
-        )}
-
-        {activeTab === 'compare' && (
-          <WeaponCompare
-            compareList={compareList}
-            onRemoveFromCompare={handleRemoveFromCompare}
-            onClearCompare={handleClearCompare}
-            onSelectWeapon={handleSelectWeapon}
-            onOpenInfo={(item) => setInfoDrawerItem(item)}
+            profileData={profileData}
+            onProfileDataChange={setProfileData}
           />
         )}
 
@@ -326,7 +268,6 @@ export default function App() {
       <MobileBottomNav
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        compareCount={compareList.length}
         wishlistCount={wishlists.length}
         authSession={authSession}
       />
@@ -336,10 +277,11 @@ export default function App() {
         <WeaponModal
           weapon={selectedWeapon}
           onClose={() => setSelectedWeapon(null)}
-          onAddToCompare={handleAddToCompare}
-          isCompared={compareList.some(w => w.id === selectedWeapon.id)}
           onSaveWishlist={handleSaveWishlist}
           onOpenInfo={(item) => setInfoDrawerItem(item)}
+          profileData={profileData}
+          onProfileUpdate={setProfileData}
+          onShowToast={showToast}
         />
       )}
 
@@ -348,6 +290,9 @@ export default function App() {
           armor={selectedArmor}
           onClose={() => setSelectedArmor(null)}
           onOpenInfo={(item) => setInfoDrawerItem(item)}
+          profileData={profileData}
+          onProfileUpdate={setProfileData}
+          onShowToast={showToast}
         />
       )}
 

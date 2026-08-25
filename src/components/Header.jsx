@@ -2,8 +2,6 @@ import React from 'react';
 import { 
   Crosshair, 
   Shield, 
-  BookOpen, 
-  Scale, 
   Bookmark, 
   Settings, 
   LogIn, 
@@ -15,7 +13,6 @@ export default function Header({
   activeTab, 
   setActiveTab, 
   onOpenSettings,
-  compareCount = 0,
   wishlistCount = 0,
   authSession,
   onLogin
@@ -41,7 +38,7 @@ export default function Header({
             <button
               onClick={() => setActiveTab('guardian')}
               className="flex items-center gap-2.5 px-3 py-1.5 rounded-xl bg-[#121722] hover:bg-[#182030] border border-amber-500/30 text-left transition-colors shadow-sm"
-              title="Open Guardian & Vault"
+              title="Open Guardian"
             >
               <div className="relative">
                 <div className="w-7 h-7 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 font-bold text-xs">
@@ -102,36 +99,7 @@ export default function Header({
             }`}
           >
             <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>Vault & Loadouts</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('perks')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-heading tracking-wide transition-all ${
-              activeTab === 'perks'
-                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Perks</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('compare')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-heading tracking-wide transition-all ${
-              activeTab === 'compare'
-                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
-          >
-            <Scale className="w-3.5 h-3.5" />
-            <span>Compare</span>
-            {compareCount > 0 && (
-              <span className="px-1.5 py-0.2 rounded-full bg-slate-900 text-[10px] font-mono font-bold text-amber-400">
-                {compareCount}
-              </span>
-            )}
+            <span>Guardian</span>
           </button>
 
           <button

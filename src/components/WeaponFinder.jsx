@@ -8,7 +8,6 @@ import {
   ChevronRight, 
   Copy, 
   Bookmark, 
-  Scale, 
   ExternalLink,
   Flame,
   Zap,
@@ -32,8 +31,6 @@ import PerkIcon from './PerkIcon';
 
 export default function WeaponFinder({ 
   onSelectWeapon, 
-  onAddToCompare, 
-  compareList, 
   onSaveWishlist,
   filtersMetadata,
   onOpenInfo 
@@ -806,7 +803,6 @@ export default function WeaponFinder({
             const sourceBadge = getSourceCategoryBadge(w.sourceCategory);
             const ammoInfo = getAmmoInfo(w.ammoType);
             const slotInfo = getSlotInfo(w.slot);
-            const isCompared = compareList.some(item => item.id === w.id);
 
             const matchingPerks = selectedPerks.length > 0 
               ? w.allPerkNames.filter(pn => selectedPerks.some(sp => sp.toLowerCase() === pn.toLowerCase()))
@@ -982,21 +978,6 @@ export default function WeaponFinder({
                   </span>
 
                   <div className="flex items-center gap-1">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onAddToCompare(w);
-                      }}
-                      className={`p-1.5 rounded transition-colors ${
-                        isCompared 
-                          ? 'bg-emerald-500 text-black font-bold' 
-                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-                      }`}
-                      title={isCompared ? 'Remove from compare' : 'Add to compare'}
-                    >
-                      <Scale className="w-3.5 h-3.5" />
-                    </button>
-
                     <button
                       onClick={(e) => {
                         e.stopPropagation();

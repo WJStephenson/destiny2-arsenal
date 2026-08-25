@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Shield, 
   Crosshair, 
@@ -11,11 +11,11 @@ import {
   Check, 
   ChevronRight, 
   Box, 
-  Backpack, 
   ExternalLink, 
   Search, 
   Filter, 
-  Info 
+  Info,
+  Plus 
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { ITEM_STATE_MASTERWORK, STAT_META, normaliseStats } from '../utils/armor-stats';
@@ -35,6 +35,7 @@ import {
 } from '../utils/destiny-buckets';
 import LongPressable from './LongPressable';
 import ArmourOptimizer from './ArmourOptimizer';
+import VaultSlotPickerModal from './VaultSlotPickerModal';
 
 /** Card headings, which read a little differently from the bare slot names. */
 const WEAPON_SLOT_TITLES = {
@@ -86,9 +87,11 @@ export default function GuardianManager({
   authSession,
   onLogin,
   onLogout,
-  onOpenInfo 
+  onOpenInfo,
+  profileData: externalProfileData,
+  onProfileDataChange
 }) {
-  const [profileData, setProfileData] = useState(null);
+  const [profileData, setProfileData] = useState(() => externalProfileData || null);
   const [selectedCharacterIndex, setSelectedCharacterIndex] = useState(0);
   const [activeSubTab, setActiveSubTab] = useState('weapons'); // 'weapons' | 'armor' | 'inventory' | 'loadouts' | 'vault'
   const [armorView, setArmorView] = useState('slots'); // 'slots' | 'optimizer'
@@ -97,6 +100,7 @@ export default function GuardianManager({
   const [statusMessage, setStatusMessage] = useState(null);
   const [vaultSearch, setVaultSearch] = useState('');
   const [vaultFilter, setVaultFilter] = useState('all'); // 'all' | 'weapons' | 'armor'
+  const [vaultPickerSlot, setVaultPickerSlot] = useState(null); // { key, title, bag, equipped }
 
   /**
    * The profile as it stands right now, for the action handlers.
@@ -116,9 +120,18 @@ export default function GuardianManager({
     if (next !== prev) {
       profileDataRef.current = next;
       lastWriteRef.current = token;
+      onProfileDataChange?.(next);
     }
     return next;
   });
+
+  // Sync when external profileData updates (e.g. from WeaponModal / ArmorModal transfers)
+  useEffect(() => {
+    if (externalProfileData && externalProfileData !== profileDataRef.current) {
+      setProfileData(externalProfileData);
+      profileDataRef.current = externalProfileData;
+    }
+  }, [externalProfileData]);
 
   // Confirmed-action trackers. Bungie's profile endpoint can serve a cached
   // response for a few seconds after an action lands, so a *confirmed* change
@@ -1062,6 +1075,14 @@ export default function GuardianManager({
     bag: bagBySlot[key] || []
   }));
 
+  const currentPickerSlotGroup = useMemo(() => {
+    if (!vaultPickerSlot) return null;
+    const key = vaultPickerSlot.key;
+    const isW = WEAPON_SLOT_KEYS.includes(key);
+    const slots = isW ? weaponSlots : armorSlots;
+    return slots.find(s => s.key === key) || vaultPickerSlot;
+  }, [vaultPickerSlot, weaponSlots, armorSlots]);
+
   const filteredVaultItems = (profileData?.vault || []).filter(item => {
     if (vaultFilter === 'weapons' && !item.isWeapon) return false;
     if (vaultFilter === 'armor' && !item.isArmor) return false;
@@ -1175,18 +1196,6 @@ export default function GuardianManager({
           </button>
 
           <button
-            onClick={() => setActiveSubTab('inventory')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
-              activeSubTab === 'inventory' 
-                ? 'bg-amber-500 text-black shadow-md' 
-                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-            }`}
-          >
-            <Backpack className="w-3.5 h-3.5" />
-            <span>Inventory ({inventoryItems.length})</span>
-          </button>
-
-          <button
             onClick={() => setActiveSubTab('loadouts')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
               activeSubTab === 'loadouts' 
@@ -1240,7 +1249,19 @@ export default function GuardianManager({
                   <div>
                     {/* Slot Header */}
                     <div className="px-3.5 py-2 bg-[#0b0e14] border-b border-[#1e2638] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
-                      <span>{slotGroup.title}</span>
+                      <div className="flex items-center gap-2">
+                        <span>{slotGroup.title}</span>
+                        {slotGroup.bag.length < 9 && (
+                          <button
+                            onClick={() => setVaultPickerSlot(slotGroup)}
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 text-[10px] font-bold text-amber-400 font-mono tracking-normal normal-case transition-all shadow-sm"
+                            title={`Add ${slotGroup.title} from Vault`}
+                          >
+                            <Plus className="w-3 h-3 text-amber-400" />
+                            <span>Add from Vault</span>
+                          </button>
+                        )}
+                      </div>
                       <span className="text-[11px] text-amber-400 font-mono">
                         {item.power ? `✧ ${item.power}` : ''}
                       </span>
@@ -1317,59 +1338,67 @@ export default function GuardianManager({
                       </div>
                     )}
 
-                    {/* Bag Inventory Quick Swap Row */}
+                    {/* Quick Swap Inventory Row */}
                     <div className="p-3 bg-[#0b0e14] space-y-1.5">
                       <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
-                        <span>Bag ({slotGroup.bag.length})</span>
+                        <span>Inventory ({slotGroup.bag.length}/9)</span>
                         <span className="text-[10px] text-slate-500">Tap to equip • Hold for info</span>
                       </div>
 
-                      {slotGroup.bag.length > 0 ? (
-                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                          {slotGroup.bag.map((bagItem) => {
-                            const bTier = getTierInfo(bagItem.tierTypeName);
-                            const isSwapping = actionLoading === bagItem.itemInstanceId;
-                            // Actions run one at a time, so tiles that are not
-                            // the one in flight read as unavailable rather than
-                            // silently doing nothing when tapped.
-                            const blocked = !!actionLoading && !isSwapping;
+                      <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                        {slotGroup.bag.map((bagItem) => {
+                          const bTier = getTierInfo(bagItem.tierTypeName);
+                          const isSwapping = actionLoading === bagItem.itemInstanceId;
+                          // Actions run one at a time, so tiles that are not
+                          // the one in flight read as unavailable rather than
+                          // silently doing nothing when tapped.
+                          const blocked = !!actionLoading && !isSwapping;
 
-                            return (
-                              <LongPressable
-                                key={bagItem.itemInstanceId}
-                                onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
-                                onLongPress={() => onSelectWeapon?.(bagItem.baseItem || bagItem)}
-                                className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
-                                  blocked
-                                    ? 'opacity-40 cursor-not-allowed'
-                                    : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
-                                }`}
-                                title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
-                              >
-                                {bagItem.icon ? (
-                                  <img src={bagItem.icon} alt="" className="w-full h-full object-cover rounded-lg" />
-                                ) : (
-                                  <span className="text-[10px] text-slate-500 font-mono">D2</span>
-                                )}
+                          return (
+                            <LongPressable
+                              key={bagItem.itemInstanceId}
+                              onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
+                              onLongPress={() => onSelectWeapon?.(bagItem.baseItem || bagItem)}
+                              className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
+                                blocked
+                                  ? 'opacity-40 cursor-not-allowed'
+                                  : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
+                              }`}
+                              title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
+                            >
+                              {bagItem.icon ? (
+                                <img src={bagItem.icon} alt="" className="w-full h-full object-cover rounded-lg" />
+                              ) : (
+                                <span className="text-[10px] text-slate-500 font-mono">D2</span>
+                              )}
 
-                                {bagItem.power && (
-                                  <span className="absolute bottom-0.5 right-0.5 text-[8px] font-mono bg-black/90 text-amber-300 px-1 rounded font-bold leading-tight">
-                                    {bagItem.power}
-                                  </span>
-                                )}
+                              {bagItem.power && (
+                                <span className="absolute bottom-0.5 right-0.5 text-[8px] font-mono bg-black/90 text-amber-300 px-1 rounded font-bold leading-tight">
+                                  {bagItem.power}
+                                </span>
+                              )}
 
-                                {isSwapping && (
-                                  <div className="absolute inset-0 bg-black/75 flex items-center justify-center">
-                                    <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                                  </div>
-                                )}
-                              </LongPressable>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-500 italic">No spare weapons in bag</p>
-                      )}
+                              {isSwapping && (
+                                <div className="absolute inset-0 bg-black/75 flex items-center justify-center">
+                                  <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                                </div>
+                              )}
+                            </LongPressable>
+                          );
+                        })}
+
+                        {/* + Option tile if space */}
+                        {slotGroup.bag.length < 9 && (
+                          <button
+                            onClick={() => setVaultPickerSlot(slotGroup)}
+                            className="w-11 h-11 rounded-xl bg-[#121722]/80 hover:bg-amber-500/15 border border-dashed border-slate-700 hover:border-amber-500/60 text-slate-400 hover:text-amber-300 p-0.5 flex-shrink-0 transition-all shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer group"
+                            title={`Add ${slotGroup.title} from Vault (${9 - slotGroup.bag.length} spaces left)`}
+                          >
+                            <Plus className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+                            <span className="text-[8px] font-mono leading-none text-slate-400 group-hover:text-amber-300 font-bold">ADD</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                   </div>
@@ -1443,7 +1472,19 @@ export default function GuardianManager({
                     <div>
                       {/* Slot Header */}
                       <div className="px-3.5 py-2 bg-[#0b0e14] border-b border-[#1e2638] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
-                        <span>{slotGroup.title}</span>
+                        <div className="flex items-center gap-2">
+                          <span>{slotGroup.title}</span>
+                          {slotGroup.bag.length < 9 && (
+                            <button
+                              onClick={() => setVaultPickerSlot(slotGroup)}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 text-[10px] font-bold text-amber-400 font-mono tracking-normal normal-case transition-all shadow-sm"
+                              title={`Add ${slotGroup.title} from Vault`}
+                            >
+                              <Plus className="w-3 h-3 text-amber-400" />
+                              <span>Add from Vault</span>
+                            </button>
+                          )}
+                        </div>
                         <div className="flex items-center gap-2">
                           {item.armorStats?.total ? (
                             <span className="text-[11px] text-slate-400 font-mono">
@@ -1535,56 +1576,64 @@ export default function GuardianManager({
                         </div>
                       )}
 
-                      {/* Bag Inventory Quick Swap Row */}
+                      {/* Quick Swap Inventory Row */}
                       <div className="p-3 bg-[#0b0e14] space-y-1.5">
                         <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
-                          <span>Bag ({slotGroup.bag.length})</span>
+                          <span>Inventory ({slotGroup.bag.length}/9)</span>
                           <span className="text-[10px] text-slate-500">Tap to equip</span>
                         </div>
 
-                        {slotGroup.bag.length > 0 ? (
-                          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-                            {slotGroup.bag.map((bagItem) => {
-                              const bTier = getTierInfo(bagItem.tierTypeName);
-                              const isSwapping = actionLoading === bagItem.itemInstanceId;
-                              const blocked = !!actionLoading && !isSwapping;
+                        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+                          {slotGroup.bag.map((bagItem) => {
+                            const bTier = getTierInfo(bagItem.tierTypeName);
+                            const isSwapping = actionLoading === bagItem.itemInstanceId;
+                            const blocked = !!actionLoading && !isSwapping;
 
-                              return (
-                                <LongPressable
-                                  key={bagItem.itemInstanceId}
-                                  onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
-                                  onLongPress={() => onSelectArmor?.(bagItem.baseItem || bagItem)}
-                                  className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
-                                    blocked
-                                      ? 'opacity-40 cursor-not-allowed'
-                                      : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
-                                  }`}
-                                  title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
-                                >
-                                  {bagItem.icon ? (
-                                    <img src={bagItem.icon} alt="" className="w-full h-full object-cover rounded-lg" />
-                                  ) : (
-                                    <span className="text-[10px] text-slate-500 font-mono">D2</span>
-                                  )}
+                            return (
+                              <LongPressable
+                                key={bagItem.itemInstanceId}
+                                onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
+                                onLongPress={() => onSelectArmor?.(bagItem.baseItem || bagItem)}
+                                className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
+                                  blocked
+                                    ? 'opacity-40 cursor-not-allowed'
+                                    : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
+                                }`}
+                                title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
+                              >
+                                {bagItem.icon ? (
+                                  <img src={bagItem.icon} alt="" className="w-full h-full object-cover rounded-lg" />
+                                ) : (
+                                  <span className="text-[10px] text-slate-500 font-mono">D2</span>
+                                )}
 
-                                  {bagItem.power && (
-                                    <span className="absolute bottom-0.5 right-0.5 text-[8px] font-mono bg-black/90 text-amber-300 px-1 rounded font-bold leading-tight">
-                                      {bagItem.power}
-                                    </span>
-                                  )}
+                                {bagItem.power && (
+                                  <span className="absolute bottom-0.5 right-0.5 text-[8px] font-mono bg-black/90 text-amber-300 px-1 rounded font-bold leading-tight">
+                                    {bagItem.power}
+                                  </span>
+                                )}
 
-                                  {isSwapping && (
-                                    <div className="absolute inset-0 bg-black/75 flex items-center justify-center">
-                                      <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                                    </div>
-                                  )}
-                                </LongPressable>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <p className="text-xs text-slate-500 italic">No alternative pieces in bag</p>
-                        )}
+                                {isSwapping && (
+                                  <div className="absolute inset-0 bg-black/75 flex items-center justify-center">
+                                    <RefreshCw className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                                  </div>
+                                )}
+                              </LongPressable>
+                            );
+                          })}
+
+                          {/* + Option tile if space */}
+                          {slotGroup.bag.length < 9 && (
+                            <button
+                              onClick={() => setVaultPickerSlot(slotGroup)}
+                              className="w-11 h-11 rounded-xl bg-[#121722]/80 hover:bg-amber-500/15 border border-dashed border-slate-700 hover:border-amber-500/60 text-slate-400 hover:text-amber-300 p-0.5 flex-shrink-0 transition-all shadow-sm flex flex-col items-center justify-center gap-0.5 cursor-pointer group"
+                              title={`Add ${slotGroup.title} from Vault (${9 - slotGroup.bag.length} spaces left)`}
+                            >
+                              <Plus className="w-4 h-4 text-amber-400 group-hover:scale-110 transition-transform" />
+                              <span className="text-[8px] font-mono leading-none text-slate-400 group-hover:text-amber-300 font-bold">ADD</span>
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                     </div>
@@ -1618,101 +1667,7 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 3: INVENTORY BAGS */}
-      {activeSubTab === 'inventory' && (
-        <div className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-            {activeChar?.classType}'s Bag Inventory ({inventoryItems.length})
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {inventoryItems.map((item) => {
-              const tierInfo = getTierInfo(item.tierTypeName);
-              const damageInfo = getDamageInfo(item.damageType);
-
-              return (
-                <div
-                  key={item.itemInstanceId || item.itemHash}
-                  className="bg-[#121722] border border-[#20293a] hover:border-slate-600 rounded-xl overflow-hidden flex flex-col justify-between shadow-lg"
-                >
-                  <div className={`p-3 ${tierInfo.headerBg} border-b border-[#20293a]`}>
-                    <div className="flex items-start gap-3">
-                      <div className="relative w-12 h-12 rounded-lg bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                        {item.icon ? (
-                          <img src={item.icon} alt="" className="w-full h-full object-cover" />
-                        ) : null}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`text-[10px] font-mono font-bold uppercase ${tierInfo.text}`}>
-                            {item.tierTypeName}
-                          </span>
-                          {item.damageType && (
-                            <span className={`text-[10px] font-mono ${damageInfo.text}`}>
-                              • {item.damageType}
-                            </span>
-                          )}
-                        </div>
-                        <h4 className="font-bold text-white text-sm truncate">{item.name}</h4>
-                        <div className="flex items-center justify-between text-xs mt-0.5">
-                          <span className="text-[11px] text-slate-400 truncate">{item.itemTypeDisplayName}</span>
-                          {item.power && (
-                            <span className="text-amber-400 font-mono font-bold">
-                              ✧ {item.power}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Active Perks */}
-                  <div className="p-3 space-y-2 flex-1">
-                    {item.perks?.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {item.perks.map((p, pIdx) => {
-                          const pObj = typeof p === 'object' ? p : { name: p };
-                          return (
-                            <span
-                              key={pIdx}
-                              className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
-                            >
-                              {pObj.name}
-                            </span>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Actions: Equip or Vault */}
-                  <div className="p-2.5 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-2">
-                    <button
-                      disabled={!!actionLoading}
-                      onClick={() => handleEquipItem(item.itemInstanceId)}
-                      className="flex-1 py-1.5 rounded bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold font-mono transition-colors disabled:opacity-50"
-                    >
-                      ⚡ Equip
-                    </button>
-
-                    <button
-                      disabled={!!actionLoading}
-                      onClick={() => handleTransferItem(item, true)}
-                      className="px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700 flex items-center gap-1 disabled:opacity-50"
-                    >
-                      <Box className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Vault</span>
-                    </button>
-                  </div>
-
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Sub-Tab 4: IN-GAME LOADOUTS */}
+      {/* Sub-Tab 3: IN-GAME LOADOUTS */}
       {activeSubTab === 'loadouts' && (
         <div className="space-y-4">
           <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
@@ -1897,6 +1852,21 @@ export default function GuardianManager({
           </div>
 
         </div>
+      )}
+
+      {/* Vault Slot Picker Modal */}
+      {currentPickerSlotGroup && (
+        <VaultSlotPickerModal
+          slotGroup={currentPickerSlotGroup}
+          activeChar={activeChar}
+          vaultItems={profileData?.vault || []}
+          onClose={() => setVaultPickerSlot(null)}
+          onTransfer={(item) => handleTransferItem(item, false)}
+          actionLoading={actionLoading}
+          onSelectWeapon={onSelectWeapon}
+          onSelectArmor={onSelectArmor}
+          onOpenInfo={onOpenInfo}
+        />
       )}
 
     </div>
