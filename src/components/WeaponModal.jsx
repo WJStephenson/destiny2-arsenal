@@ -16,7 +16,7 @@ import {
   Award,
   ShieldAlert
 } from 'lucide-react';
-import { getDamageInfo, getTierInfo, getSourceCategoryBadge, withoutDuplicateEnhancedPerks, rollColumns } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo, getSourceCategoryBadge, getAcquisitionHint, withoutDuplicateEnhancedPerks, rollColumns } from '../utils/destiny-helpers';
 import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
 
@@ -137,6 +137,15 @@ export default function WeaponModal({
                   <Hammer className="w-3 h-3" /> Craftable
                 </span>
               )}
+
+              {weapon.seasonNumber != null && (
+                <span
+                  className="text-[10px] sm:text-xs font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700"
+                  title={weapon.seasonName ? `${weapon.seasonName} (Season ${weapon.seasonNumber})` : `Season ${weapon.seasonNumber}`}
+                >
+                  S{weapon.seasonNumber}
+                </span>
+              )}
             </div>
 
             {/* Title & Icon Main Block */}
@@ -249,11 +258,7 @@ export default function WeaponModal({
                   {weapon.sourceString}
                 </h4>
                 <p className="text-xs text-slate-300 leading-relaxed">
-                  {weapon.tierTypeName === 'Exotic' 
-                    ? 'Can be unlocked from its dedicated quest, exotic mission, or Monument to Lost Lights in the Tower.'
-                    : weapon.isCraftable 
-                      ? 'Drop chances exist from encounter chests, secret chests, and weekly red border vendor focusing.'
-                      : 'Obtainable from activity completions, rank-up reputation engrams, and targeted vendor focusing.'}
+                  {getAcquisitionHint(weapon)}
                 </p>
               </div>
             </LongPressable>
