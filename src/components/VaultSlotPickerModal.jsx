@@ -42,7 +42,7 @@ export default function VaultSlotPickerModal({
   const isWeaponSlot = WEAPON_SLOT_KEYS.includes(slotGroup.key);
   const isArmorSlot = ARMOR_SLOT_KEYS.includes(slotGroup.key);
 
-  // Current count in the character's bag for this specific slot
+  // Current count in the character's inventory for this specific slot
   const currentBagCount = slotGroup.bag?.length || 0;
   const availableSpace = Math.max(0, 9 - currentBagCount);
   const isFull = availableSpace === 0;
@@ -128,12 +128,12 @@ export default function VaultSlotPickerModal({
 
   const getDamageIcon = (type) => {
     switch (type?.toLowerCase()) {
-      case 'solar': return <Flame className="w-3 h-3 text-amber-400" />;
-      case 'arc': return <Zap className="w-3 h-3 text-sky-400" />;
-      case 'void': return <Moon className="w-3 h-3 text-purple-400" />;
-      case 'stasis': return <Snowflake className="w-3 h-3 text-blue-400" />;
-      case 'strand': return <Wind className="w-3 h-3 text-emerald-400" />;
-      default: return <CircleDot className="w-3 h-3 text-slate-300" />;
+      case 'solar': return <Flame className="w-3.5 h-3.5 text-amber-400" />;
+      case 'arc': return <Zap className="w-3.5 h-3.5 text-sky-400" />;
+      case 'void': return <Moon className="w-3.5 h-3.5 text-purple-400" />;
+      case 'stasis': return <Snowflake className="w-3.5 h-3.5 text-blue-400" />;
+      case 'strand': return <Wind className="w-3.5 h-3.5 text-emerald-400" />;
+      default: return <CircleDot className="w-3.5 h-3.5 text-slate-300" />;
     }
   };
 
@@ -147,22 +147,22 @@ export default function VaultSlotPickerModal({
         <div className="sm:hidden w-12 h-1.5 bg-slate-600/70 rounded-full mx-auto my-2.5 flex-shrink-0" />
 
         {/* Modal Header */}
-        <div className="px-4 sm:px-6 py-4 bg-[#0b0e14] border-b border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 flex-shrink-0 shadow-sm">
+        <div className="px-4 sm:px-6 py-3.5 bg-[#0b0e14] border-b border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 flex-shrink-0 shadow-sm">
               {isWeaponSlot ? <Crosshair className="w-5 h-5" /> : <Shield className="w-5 h-5" />}
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h3 className="text-base sm:text-lg font-bold text-white font-heading truncate">
-                  Add {slotGroup.title} from Vault
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-bold text-white font-heading truncate">
+                  Add {slotGroup.title}
                 </h3>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-bold">
-                  {relevantVaultItems.length} available
+                <span className="text-[10px] sm:text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-bold whitespace-nowrap">
+                  {relevantVaultItems.length} in Vault
                 </span>
               </div>
-              <p className="text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1.5 font-mono">
-                <span>Destination: <strong className="text-slate-200">{activeChar?.classType}</strong></span>
+              <p className="text-[11px] sm:text-xs text-slate-400 truncate mt-0.5 flex items-center gap-1.5 font-mono">
+                <span>To: <strong className="text-slate-200">{activeChar?.classType}</strong></span>
                 <span>•</span>
                 <span>Inventory: <strong className={isFull ? 'text-rose-400' : 'text-emerald-400'}>{currentBagCount}/9</strong></span>
                 <span>({availableSpace} space{availableSpace === 1 ? '' : 's'} left)</span>
@@ -180,15 +180,15 @@ export default function VaultSlotPickerModal({
         </div>
 
         {/* Filters & Search Bar */}
-        <div className="p-3 sm:p-4 bg-[#10141d] border-b border-[#20293a] space-y-3 flex-shrink-0">
+        <div className="p-3 sm:p-4 bg-[#10141d] border-b border-[#20293a] space-y-2.5 flex-shrink-0">
           
-          {/* Search Row */}
-          <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+          {/* Search & Sort Row */}
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center justify-between">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder={`Search ${slotGroup.title.toLowerCase()} by name, perk, type...`}
+                placeholder={`Search by name, perk, type...`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-8 py-1.5 sm:py-2 bg-[#0b0e14] border border-[#20293a] rounded-xl text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500/60"
@@ -204,8 +204,8 @@ export default function VaultSlotPickerModal({
             </div>
 
             {/* Sort Dropdown */}
-            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
-              <span className="whitespace-nowrap">Sort:</span>
+            <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono self-end sm:self-auto">
+              <span className="whitespace-nowrap text-[11px]">Sort:</span>
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value)}
@@ -219,17 +219,17 @@ export default function VaultSlotPickerModal({
             </div>
           </div>
 
-          {/* Quick Filter Pills Row */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none flex-wrap text-xs">
+          {/* Quick Filter Pills Row (Horizontally Scrollable) */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none text-xs">
             
             {/* Rarity */}
-            <div className="flex items-center gap-1">
-              <span className="text-[11px] text-slate-500 font-mono mr-1">Rarity:</span>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <span className="text-[10px] text-slate-500 font-mono mr-0.5">Rarity:</span>
               {['all', 'Exotic', 'Legendary', 'Rare'].map(t => (
                 <button
                   key={t}
                   onClick={() => setTierFilter(t)}
-                  className={`px-2.5 py-1 rounded-lg font-medium transition-all ${
+                  className={`px-2 py-1 rounded-lg font-medium transition-all ${
                     tierFilter === t
                       ? 'bg-amber-500 text-black font-bold shadow-sm'
                       : 'bg-[#0b0e14] text-slate-400 hover:text-slate-200 border border-[#20293a]'
@@ -242,8 +242,8 @@ export default function VaultSlotPickerModal({
 
             {/* Weapon Element Filters */}
             {isWeaponSlot && (
-              <div className="flex items-center gap-1 border-l border-[#20293a] pl-2 ml-1">
-                <span className="text-[11px] text-slate-500 font-mono mr-1">Element:</span>
+              <div className="flex items-center gap-1 border-l border-[#20293a] pl-2 flex-shrink-0">
+                <span className="text-[10px] text-slate-500 font-mono mr-0.5">Element:</span>
                 {['all', 'Solar', 'Arc', 'Void', 'Stasis', 'Strand', 'Kinetic'].map(elem => {
                   const active = damageFilter === elem;
                   return (
@@ -266,7 +266,7 @@ export default function VaultSlotPickerModal({
 
             {/* Armor Specific Toggles */}
             {isArmorSlot && (
-              <div className="flex items-center gap-1.5 border-l border-[#20293a] pl-2 ml-1">
+              <div className="flex items-center gap-1.5 border-l border-[#20293a] pl-2 flex-shrink-0">
                 <button
                   onClick={() => setArtificeOnly(!artificeOnly)}
                   className={`px-2.5 py-1 rounded-lg font-medium border transition-all ${
@@ -295,8 +295,8 @@ export default function VaultSlotPickerModal({
 
         </div>
 
-        {/* Modal Body: Icon-Based Grid Layout */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-5 min-h-[300px]">
+        {/* Modal Body: Grid of Destiny Gear Tiles */}
+        <div className="flex-1 overflow-y-auto p-3 sm:p-5 min-h-[300px]">
           
           {isFull && (
             <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium flex items-center justify-between">
@@ -317,7 +317,7 @@ export default function VaultSlotPickerModal({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 sm:gap-3.5">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5 sm:gap-3.5">
               {relevantVaultItems.map((item) => {
                 const tierInfo = getTierInfo(item.tierTypeName);
                 const damageInfo = getDamageInfo(item.damageType);
@@ -327,10 +327,11 @@ export default function VaultSlotPickerModal({
                 return (
                   <div
                     key={item.itemInstanceId || item.itemHash}
-                    className="flex flex-col items-center group relative"
+                    className="flex flex-col items-center w-full min-w-0 group"
                   >
                     {/* Square Item Tile */}
                     <LongPressable
+                      as="div"
                       onClick={() => {
                         if (!blocked && !isTransferring) {
                           onTransfer(item);
@@ -341,7 +342,7 @@ export default function VaultSlotPickerModal({
                         else if (item.isArmor) onSelectArmor?.(item.baseItem || item);
                         else onOpenInfo?.(item);
                       }}
-                      className={`relative w-full aspect-square rounded-2xl bg-black/85 border-2 ${
+                      className={`relative w-full aspect-square rounded-2xl bg-[#0b0e14] border-2 ${
                         item.isMasterwork 
                           ? 'border-yellow-400 ring-2 ring-yellow-400/40 shadow-lg shadow-yellow-500/10' 
                           : (tierInfo.border || 'border-slate-700')
@@ -357,7 +358,8 @@ export default function VaultSlotPickerModal({
                         <img 
                           src={item.icon} 
                           alt={item.name} 
-                          className="w-full h-full object-cover rounded-xl"
+                          className="absolute inset-1 w-[calc(100%-8px)] h-[calc(100%-8px)] object-cover rounded-xl"
+                          loading="lazy"
                         />
                       ) : (
                         <span className="text-xs text-slate-500 font-mono">D2</span>
@@ -368,34 +370,34 @@ export default function VaultSlotPickerModal({
                         <img 
                           src={item.iconWatermark} 
                           alt="" 
-                          className="absolute inset-0 w-full h-full pointer-events-none opacity-80" 
+                          className="absolute inset-1 w-[calc(100%-8px)] h-[calc(100%-8px)] object-cover rounded-xl pointer-events-none opacity-80" 
                         />
                       )}
 
                       {/* Element / Damage Icon Badge (Top Left) */}
                       {item.damageType && (
-                        <div className="absolute top-1 left-1 p-0.5 rounded-md bg-black/80 backdrop-blur-sm border border-white/10 shadow flex items-center justify-center">
+                        <div className="absolute top-1.5 left-1.5 p-1 rounded-md bg-black/85 backdrop-blur-sm border border-white/10 shadow flex items-center justify-center z-10">
                           {getDamageIcon(item.damageType)}
                         </div>
                       )}
 
                       {/* Artifice Badge (Top Right) */}
                       {item.isArtifice && (
-                        <div className="absolute top-1 right-1 px-1 py-0.2 rounded bg-indigo-600 text-[8px] font-bold text-white shadow font-mono">
+                        <div className="absolute top-1.5 right-1.5 px-1 py-0.5 rounded bg-indigo-600 text-[8px] font-bold text-white shadow font-mono z-10 leading-none">
                           A
                         </div>
                       )}
 
                       {/* Power Level Badge (Bottom Right) */}
                       {item.power && (
-                        <span className="absolute bottom-1 right-1 text-[9px] font-mono bg-black/90 text-amber-300 px-1.5 py-0.5 rounded-md font-bold leading-none shadow border border-amber-500/20">
+                        <span className="absolute bottom-1.5 right-1.5 text-[9px] font-mono bg-black/90 text-amber-300 px-1.5 py-0.5 rounded-md font-bold leading-none shadow border border-amber-500/20 z-10">
                           {item.power}
                         </span>
                       )}
 
                       {/* Loading Spinner during Transfer */}
                       {isTransferring && (
-                        <div className="absolute inset-0 bg-black/80 flex flex-col items-center justify-center gap-1 z-20">
+                        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 z-20">
                           <RefreshCw className="w-5 h-5 text-amber-400 animate-spin" />
                           <span className="text-[8px] font-mono text-amber-300 font-bold">PULLING</span>
                         </div>
@@ -403,14 +405,14 @@ export default function VaultSlotPickerModal({
 
                       {/* Pull Hover Overlay (desktop) */}
                       {!blocked && !isTransferring && (
-                        <div className="absolute inset-0 bg-amber-500/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none">
+                        <div className="absolute inset-0 bg-amber-500/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none z-10">
                           <ArrowRightLeft className="w-5 h-5 text-white drop-shadow-md" />
                         </div>
                       )}
                     </LongPressable>
 
                     {/* Item Label & Info Below Tile */}
-                    <div className="w-full mt-1.5 text-center px-0.5">
+                    <div className="w-full mt-1 text-center px-0.5 min-w-0">
                       <span 
                         onClick={() => {
                           if (item.isWeapon) onSelectWeapon?.(item.baseItem || item);
@@ -440,12 +442,12 @@ export default function VaultSlotPickerModal({
 
         {/* Modal Footer */}
         <div className="px-4 py-3 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0 text-xs">
-          <span className="text-slate-400 font-mono text-[11px]">
-            Tip: Tap any tile to transfer instantly to {activeChar?.classType} • Hold tile to inspect stats & perks
+          <span className="text-slate-400 font-mono text-[11px] truncate">
+            Tap tile to pull • Hold to inspect
           </span>
           <button
             onClick={onClose}
-            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition-colors"
+            className="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium transition-colors flex-shrink-0"
           >
             Close
           </button>
