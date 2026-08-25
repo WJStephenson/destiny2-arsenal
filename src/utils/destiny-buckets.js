@@ -51,15 +51,27 @@ export function slotKeyFromBucketHash(bucketHash) {
 /**
  * Slot implied by a display name -- 'Leg Armor', 'Hunter Cloak', 'Energy'.
  * Only used where no bucket is available.
+ *
+ * The vocabulary covers the words Bungie actually ships in
+ * `itemTypeDisplayName`, plus the ones armour pieces use in their own names,
+ * because a stored piece whose definition arrived without a bucket has nothing
+ * else left to identify it -- and a piece nothing identifies is a piece that
+ * silently disappears from its slot.
  */
 export function slotKeyFromText(text) {
   if (!text) return null;
   const s = String(text).toLowerCase();
-  if (s.includes('helmet')) return 'helmet';
-  if (s.includes('gauntlet') || s.includes('arms')) return 'gauntlets';
-  if (s.includes('chest')) return 'chest';
-  if (s.includes('leg') || s.includes('boots') || s.includes('greaves') || s.includes('strides')) return 'legs';
-  if (s.includes('class') || s.includes('mark') || s.includes('cloak') || s.includes('bond')) return 'classItem';
+  // Class items first: 'Hunter Cloak' and 'Titan Mark' are whole slots on their
+  // own, and nothing else claims those words.
+  if (s.includes('class item') || s.includes('cloak') || s.includes('mark') || s.includes('bond')) return 'classItem';
+  if (s.includes('helmet') || s.includes('helm') || s.includes('cowl') || s.includes('hood')
+    || s.includes('mask') || s.includes('crown') || s.includes('visor')) return 'helmet';
+  if (s.includes('gauntlet') || s.includes('arms') || s.includes('glove')
+    || s.includes('grip') || s.includes('grasp')) return 'gauntlets';
+  if (s.includes('chest') || s.includes('robe') || s.includes('vest')
+    || s.includes('plate') || s.includes('harness')) return 'chest';
+  if (s.includes('leg') || s.includes('boots') || s.includes('greaves')
+    || s.includes('strides') || s.includes('treads') || s.includes('sabatons')) return 'legs';
   if (s.includes('kinetic')) return 'kinetic';
   if (s.includes('energy')) return 'energy';
   if (s.includes('power') || s.includes('heavy')) return 'power';
