@@ -2,6 +2,46 @@ import { getStoredSettings } from './auth-storage';
 
 const memoryCache = new Map();
 
+/** Bungie's error code for 'you are asking too quickly'. */
+const THROTTLE_ERROR_CODES = new Set([51, 52, 53]);
+
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+/**
+ * Ask Bungie for one definition, retrying a failure that is worth retrying.
+ *
+ * A definition never changes, so a request that fails is only ever a transport
+ * problem or a rate limit -- both of which pass. Backing off and asking again
+ * costs a moment; giving up costs the item its name and icon for as long as the
+ * profile is on screen.
+ */
+async function fetchDefinitionWithRetry(hashKey, headers, attempts = 3) {
+  const url = `https://www.bungie.net/Platform/Destiny2/Manifest/DestinyInventoryItemDefinition/${hashKey}/`;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (attempt > 0) await wait(250 * (2 ** (attempt - 1)));
+
+    try {
+      const res = await fetch(url, { headers });
+
+      // A rate limit or a server hiccup: worth asking again.
+      if (res.status === 429 || res.status >= 500) continue;
+
+      const data = await res.json();
+      if (data?.Response) return data;
+      if (THROTTLE_ERROR_CODES.has(data?.ErrorCode)) continue;
+
+      // Bungie answered and meant it (an unknown hash, a bad key). Asking again
+      // would get the same answer.
+      return data;
+    } catch (e) {
+      // Network error -- retry.
+    }
+  }
+
+  return null;
+}
+
 // Helper to get definition from Bungie Manifest API
 export async function getItemDefinition(itemHash) {
   if (!itemHash) return null;
@@ -21,16 +61,18 @@ export async function getItemDefinition(itemHash) {
     }
   } catch (e) {}
 
-  // Fetch from Bungie API
+  // Fetch from Bungie API. One definition at a time is all Bungie offers, so a
+  // profile asks for a great many of them at once and a throttled or dropped
+  // request is routine -- and an item whose definition never arrives renders as
+  // a nameless, iconless tile. Hence the retries.
   try {
     const settings = getStoredSettings();
     const headers = {};
     if (settings.apiKey) headers['X-API-Key'] = settings.apiKey;
 
-    const res = await fetch(`https://www.bungie.net/Platform/Destiny2/Manifest/DestinyInventoryItemDefinition/${hashKey}/`, { headers });
-    const data = await res.json();
-    
-    if (data.Response) {
+    const data = await fetchDefinitionWithRetry(hashKey, headers);
+
+    if (data?.Response) {
       const display = data.Response.displayProperties || {};
       const inv = data.Response.inventory || {};
       const damageTypeEnum = data.Response.defaultDamageType;
@@ -82,13 +124,20 @@ export async function getItemDefinition(itemHash) {
   };
 }
 
-// Batch resolve item definitions for a list of hashes
+/**
+ * Resolve many definitions at once.
+ *
+ * Bungie has no bulk definition endpoint, so this is one request per hash and a
+ * full vault is a great many hashes. Cached hashes are answered without a
+ * request at all, and the rest go out in small waves rather than one burst --
+ * a burst is what gets a profile rate-limited, and a rate-limited profile is
+ * one full of blank tiles.
+ */
 export async function batchResolveItemDefinitions(hashes) {
   const uniqueHashes = [...new Set(hashes.filter(Boolean))];
   const results = {};
-  
-  // Resolve in concurrent chunks of 15
-  const chunkSize = 15;
+
+  const chunkSize = 8;
   for (let i = 0; i < uniqueHashes.length; i += chunkSize) {
     const chunk = uniqueHashes.slice(i, i + chunkSize);
     await Promise.all(
