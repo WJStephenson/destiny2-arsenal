@@ -65,6 +65,47 @@ export function getSourceCategoryBadge(sourceCategory) {
   return { name: 'World Drop', bg: 'bg-slate-800', text: 'text-slate-300', border: 'border-slate-700', icon: '📦' };
 }
 
+/**
+ * The sentence under the "How to Acquire" heading. It used to be one line about
+ * reputation engrams and vendor focusing shown for every weapon, which reads as
+ * wrong the moment the source is a raid or a dungeon -- neither drops from a
+ * vendor. The wording now follows the resolved category.
+ */
+export function getAcquisitionHint(weapon) {
+  if (!weapon) return '';
+  const sc = (weapon.sourceCategory || '').toLowerCase();
+
+  if (weapon.tierTypeName === 'Exotic') {
+    return 'Can be unlocked from its dedicated quest, exotic mission, or Monument to Lost Lights in the Tower.';
+  }
+  if (sc.includes('raid') || sc.includes('dungeon')) {
+    return weapon.isCraftable
+      ? 'Drops from encounters and secret chests in this activity, and its pattern can be extracted from red border drops.'
+      : 'Drops from encounters and secret chests in this activity, with a weekly guaranteed drop on first clear.';
+  }
+  if (sc.includes('trials')) {
+    return 'Earned from Trials match wins, Flawless passages, and Saint-14 reward focusing.';
+  }
+  if (sc.includes('iron banner')) {
+    return 'Earned from Iron Banner matches and Lord Saladin rank rewards while the event is live.';
+  }
+  if (sc.includes('crucible') || sc.includes('gambit') || sc.includes('nightfall') || sc.includes('vanguard')) {
+    return 'Earned from playlist completions, rank resets, and focusing engrams at the playlist vendor.';
+  }
+  if (sc.includes('exotic quest') || sc.includes('archive')) {
+    return 'Unlocked through its quest or mission, or claimed from the Monument to Lost Lights.';
+  }
+  if (sc.includes('seasonal') || sc.includes('episode')) {
+    return 'Earned from seasonal activity completions, season pass ranks, and seasonal vendor focusing.';
+  }
+  if (sc.includes('world drop')) {
+    return 'Drops from general world activities, engrams, and Banshee-44 at the Tower.';
+  }
+  return weapon.isCraftable
+    ? 'Drop chances exist from activity completions, and its pattern can be extracted from red border drops.'
+    : 'Obtainable from activity completions, rank-up reputation engrams, and targeted vendor focusing.';
+}
+
 export function generateDimQuery(weapon, selectedPerks = []) {
   if (!weapon) return '';
   let q = `name:"${weapon.name}"`;

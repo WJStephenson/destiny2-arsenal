@@ -425,8 +425,14 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
 
   console.log('Reading Collectibles & Acquisition Sources...');
   const collectibleRows = db.prepare('SELECT id, json FROM DestinyCollectibleDefinition').all();
+  // Three indexes, because an item can reach its collectible from either end.
+  // `collectibleHashToSource` is the one an item definition can address
+  // directly through its own `collectibleHash`; indexing only by `itemHash`
+  // and then looking a collectible hash up in it never matches, which is what
+  // pushed reissued weapons onto the name fallback below.
+  const collectibleHashToSource = new Map();
   const itemHashToSource = new Map();
-  const nameToSource = new Map();
+  const nameToCollectibles = new Map();
 
   for (const row of collectibleRows) {
     const col = JSON.parse(row.json);
@@ -435,12 +441,42 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
     const itemHash = col.itemHash;
 
     if (src && !src.startsWith('Random Perks') && !src.startsWith('An unlockable') && src !== 'Source: Unknown') {
+      collectibleHashToSource.set(col.hash, src);
       if (itemHash) itemHashToSource.set(itemHash, src);
-      if (name && !nameToSource.has(name)) nameToSource.set(name, src);
+      if (name) {
+        // Every collectible sharing a name is kept, not just the first one in
+        // table order. A weapon that has been reissued has one collectible per
+        // release -- the Episode text and the dungeon text both exist -- and
+        // first-write-wins picked between them by hash order, which is not
+        // recency. Which one applies is decided per item, by season.
+        if (!nameToCollectibles.has(name)) nameToCollectibles.set(name, []);
+        nameToCollectibles.get(name).push({ src, itemHash });
+      }
     }
   }
 
-  console.log(`Indexed sources for ${itemHashToSource.size} item hashes and ${nameToSource.size} names.`);
+  console.log(`Indexed sources for ${itemHashToSource.size} item hashes, ${collectibleHashToSource.size} collectibles and ${nameToCollectibles.size} names.`);
+
+  console.log('Reading Season Definitions...');
+  const seasonDefs = {};
+  try {
+    const hasSeasons = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='DestinySeasonDefinition'").get();
+    if (hasSeasons) {
+      for (const row of db.prepare('SELECT json FROM DestinySeasonDefinition').all()) {
+        const data = JSON.parse(row.json);
+        seasonDefs[data.hash] = {
+          hash: data.hash,
+          number: data.seasonNumber ?? null,
+          name: data.displayProperties?.name || ''
+        };
+      }
+      console.log(`  Found ${Object.keys(seasonDefs).length} seasons.`);
+    } else {
+      console.log('  No season table in this manifest; season tagging unavailable.');
+    }
+  } catch (err) {
+    console.log('  Could not read season definitions:', err.message);
+  }
 
   console.log('Reading all Inventory Items...');
   const itemRows = db.prepare('SELECT id, json FROM DestinyInventoryItemDefinition').all();
@@ -454,6 +490,96 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
   const getItemByHash = (h) => rawItemMap.get(h);
 
   console.log(`Loaded ${rawItemMap.size} raw item definitions.`);
+
+  /**
+   * The watermark an item actually wears in game. Bungie leaves the original
+   * `iconWatermark` in place when it reissues a weapon and appends the new
+   * season's watermark to `quality.displayVersionWatermarkIcons`, so reading
+   * `iconWatermark` alone shows the season the weapon first shipped in rather
+   * than the one it currently belongs to. `currentVersion` indexes that array.
+   */
+  function getCurrentWatermark(item) {
+    const versions = item.quality?.displayVersionWatermarkIcons;
+    if (Array.isArray(versions) && versions.length > 0) {
+      const idx = Number.isInteger(item.quality?.currentVersion)
+        ? Math.min(Math.max(item.quality.currentVersion, 0), versions.length - 1)
+        : versions.length - 1;
+      if (versions[idx]) return versions[idx];
+    }
+    return item.iconWatermark || null;
+  }
+
+  /**
+   * Not every item carries a `seasonHash`, but the ones that do are enough to
+   * learn which season each watermark stands for, and every ranked item has a
+   * watermark. Ambiguous watermarks are settled by majority vote rather than by
+   * whichever item happened to be read first.
+   */
+  console.log('Indexing season watermarks...');
+  const watermarkVotes = new Map();
+  for (const [, item] of rawItemMap) {
+    const season = seasonDefs[item.seasonHash];
+    if (!season || season.number == null) continue;
+    const wm = getCurrentWatermark(item);
+    if (!wm) continue;
+    if (!watermarkVotes.has(wm)) watermarkVotes.set(wm, new Map());
+    const votes = watermarkVotes.get(wm);
+    votes.set(season.number, (votes.get(season.number) || 0) + 1);
+  }
+  const watermarkToSeason = new Map();
+  for (const [wm, votes] of watermarkVotes) {
+    let best = null;
+    let bestCount = -1;
+    for (const [num, count] of votes) {
+      if (count > bestCount) { best = num; bestCount = count; }
+    }
+    if (best != null) watermarkToSeason.set(wm, best);
+  }
+  console.log(`  Mapped ${watermarkToSeason.size} watermarks to seasons.`);
+
+  /** The season an item's current version belongs to, or null if unknowable. */
+  function getSeasonNumber(item) {
+    const direct = seasonDefs[item.seasonHash];
+    if (direct && direct.number != null) return direct.number;
+    const wm = getCurrentWatermark(item);
+    if (wm && watermarkToSeason.has(wm)) return watermarkToSeason.get(wm);
+    return null;
+  }
+
+  /**
+   * Acquisition source for one item definition, most specific route first.
+   *
+   * The name route is the one that goes stale: it matches on display name
+   * alone, so a reissued weapon can pick up the retired seasonal text of its
+   * older namesake. It is therefore only trusted when the collectible it
+   * matches belongs to an item of the same season -- otherwise the source is
+   * genuinely unknown for this version and saying so beats naming a season
+   * the weapon no longer drops in.
+   */
+  function resolveRawSource(item, seasonNumber) {
+    if (item.collectibleHash && collectibleHashToSource.has(item.collectibleHash)) {
+      return collectibleHashToSource.get(item.collectibleHash);
+    }
+    if (itemHashToSource.has(item.hash)) {
+      return itemHashToSource.get(item.hash);
+    }
+
+    const name = item.displayProperties?.name?.trim();
+    const candidates = name ? nameToCollectibles.get(name) : null;
+    if (!candidates || candidates.length === 0) return null;
+
+    if (candidates.length === 1 && seasonNumber == null) return candidates[0].src;
+
+    let fallback = null;
+    for (const candidate of candidates) {
+      const other = candidate.itemHash ? rawItemMap.get(candidate.itemHash) : null;
+      if (!other) continue;
+      const otherSeason = getSeasonNumber(other);
+      if (otherSeason != null && otherSeason === seasonNumber) return candidate.src;
+      if (otherSeason == null) fallback = fallback || candidate.src;
+    }
+    return fallback;
+  }
 
   const perksCatalog = {};
 
@@ -536,13 +662,11 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
     if (!name || !tierTypeName) continue;
 
     // Resolve Acquisition Source
-    let rawSource = itemHashToSource.get(item.hash);
-    if (!rawSource && item.collectibleHash) {
-      rawSource = itemHashToSource.get(item.collectibleHash);
-    }
-    if (!rawSource) {
-      rawSource = nameToSource.get(name);
-    }
+    const seasonNumber = getSeasonNumber(item);
+    const seasonName = seasonDefs[item.seasonHash]?.name || null;
+    const currentWatermark = getCurrentWatermark(item);
+
+    let rawSource = resolveRawSource(item, seasonNumber);
     if (!rawSource) {
       if (tierTypeName === 'Exotic') {
         rawSource = 'Source: Exotic Archive / Exotic Engrams / Quests';
@@ -778,7 +902,7 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
         name: item.displayProperties.name,
         flavorText: item.flavorText || '',
         icon: item.displayProperties.icon ? 'https://www.bungie.net' + item.displayProperties.icon : null,
-        iconWatermark: item.iconWatermark ? 'https://www.bungie.net' + item.iconWatermark : null,
+        iconWatermark: currentWatermark ? 'https://www.bungie.net' + currentWatermark : null,
         screenshot: item.screenshot ? 'https://www.bungie.net' + item.screenshot : null,
         itemTypeDisplayName: item.itemTypeDisplayName || weaponType,
         weaponType,
@@ -793,6 +917,8 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
         isCraftable,
         sourceString: cleanSourceString,
         sourceCategory,
+        seasonNumber,
+        seasonName,
         intrinsic,
         originTraits,
         stats,
@@ -860,7 +986,7 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
         name: item.displayProperties.name,
         flavorText: item.flavorText || '',
         icon: item.displayProperties.icon ? 'https://www.bungie.net' + item.displayProperties.icon : null,
-        iconWatermark: item.iconWatermark ? 'https://www.bungie.net' + item.iconWatermark : null,
+        iconWatermark: currentWatermark ? 'https://www.bungie.net' + currentWatermark : null,
         screenshot: item.screenshot ? 'https://www.bungie.net' + item.screenshot : null,
         itemTypeDisplayName: item.itemTypeDisplayName || `${classType} ${armorSlot}`,
         classType,
@@ -870,6 +996,8 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
         tierType: item.inventory?.tierType || 0,
         sourceString: cleanSourceString,
         sourceCategory,
+        seasonNumber,
+        seasonName,
         setHash: armorSet?.hash ?? null,
         setName: armorSet?.name || null,
         setBonuses: armorSet?.bonuses || [],
@@ -944,19 +1072,38 @@ async function parseAndIndexDatabase(sqliteFilePath, version) {
   loadCachedData();
 }
 
+/**
+ * A reissued weapon exists in the manifest once per release, so the survivor of
+ * a name collision decides which era the app describes. Season wins first: the
+ * newest version is the one that currently drops, and its perk pool and source
+ * are the current ones. Perk count only breaks ties within a season, since on
+ * its own it can hand the entry to a retired version that happens to list more
+ * plugs. A newer version with no perks parsed is skipped rather than trusted --
+ * that is a stub, not a reissue.
+ */
 function deduplicateWeapons(list) {
   const map = new Map();
   for (const w of list) {
     const key = `${w.name}__${w.damageType}__${w.weaponType}__${w.tierTypeName}`;
     if (!map.has(key)) {
       map.set(key, w);
-    } else {
-      const existing = map.get(key);
-      const scoreExisting = (existing.isCraftable ? 100 : 0) + existing.allPerkNames.length;
-      const scoreCurrent = (w.isCraftable ? 100 : 0) + w.allPerkNames.length;
-      if (scoreCurrent > scoreExisting) {
+      continue;
+    }
+    const existing = map.get(key);
+    const seasonExisting = existing.seasonNumber ?? -1;
+    const seasonCurrent = w.seasonNumber ?? -1;
+
+    if (seasonCurrent !== seasonExisting) {
+      if (seasonCurrent > seasonExisting && w.allPerkNames.length > 0) {
         map.set(key, w);
       }
+      continue;
+    }
+
+    const scoreExisting = (existing.isCraftable ? 100 : 0) + existing.allPerkNames.length;
+    const scoreCurrent = (w.isCraftable ? 100 : 0) + w.allPerkNames.length;
+    if (scoreCurrent > scoreExisting) {
+      map.set(key, w);
     }
   }
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
@@ -968,11 +1115,18 @@ function deduplicateArmor(list) {
     const key = `${a.name}__${a.classType}__${a.armorSlot}__${a.tierTypeName}`;
     if (!map.has(key)) {
       map.set(key, a);
-    } else {
-      const existing = map.get(key);
-      if (a.exoticPerk && !existing.exoticPerk) {
-        map.set(key, a);
-      }
+      continue;
+    }
+    const existing = map.get(key);
+    const seasonExisting = existing.seasonNumber ?? -1;
+    const seasonCurrent = a.seasonNumber ?? -1;
+
+    if (seasonCurrent !== seasonExisting) {
+      if (seasonCurrent > seasonExisting) map.set(key, a);
+      continue;
+    }
+    if (a.exoticPerk && !existing.exoticPerk) {
+      map.set(key, a);
     }
   }
   return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));

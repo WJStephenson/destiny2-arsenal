@@ -477,6 +477,8 @@ export default function GuardianManager({
         flavorText: def.flavorText || '',
         sourceString: def.sourceString || '',
         sourceCategory: def.sourceCategory || '',
+        seasonNumber: def.seasonNumber ?? null,
+        seasonName: def.seasonName || null,
         isCraftable: def.isCraftable || false,
         perks
       };
