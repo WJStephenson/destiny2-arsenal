@@ -48,6 +48,7 @@ import {
 } from '../utils/destiny-buckets';
 import { buildSubclassModel, applyPlugToModel, insertPlug } from '../utils/subclass';
 import useSwipeNavigation from '../utils/useSwipeNavigation';
+import useCenteredChip from '../utils/useCenteredChip';
 import LongPressable from './LongPressable';
 import ArmourOptimizer from './ArmourOptimizer';
 import SlotPickerModal from './SlotPickerModal';
@@ -151,6 +152,9 @@ export default function GuardianManager({
     activeTab: activeSubTab,
     onChange: setActiveSubTab
   });
+
+  /** The tab bar scrolls sideways; the tab you are on stays in the middle of it. */
+  const tabBarRef = useCenteredChip(activeSubTab);
 
   /**
    * Arriving at a tab should show the top of it.
@@ -1574,7 +1578,10 @@ export default function GuardianManager({
 
         {/* Sub-Tab Navigation Bar. Swipe left or right on a phone to move
             through these in the same order. */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-[#20293a]">
+        <div
+          ref={tabBarRef}
+          className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-[#20293a]"
+        >
 
           {SUB_TABS.map(tab => {
             const meta = {
@@ -1590,6 +1597,7 @@ export default function GuardianManager({
             return (
               <button
                 key={tab}
+                data-chip={tab}
                 onClick={() => selectTab(tab)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
                   isActive
