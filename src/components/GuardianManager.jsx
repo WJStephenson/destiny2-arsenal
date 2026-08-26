@@ -90,13 +90,17 @@ const ARMOR_SLOT_TITLES = {
 /**
  * The six armour stat hashes. Bungie renamed these stats without changing
  * their hashes, so the same identifiers now mean Weapons, Health, Class,
- * Grenade, Super and Melee.
+ * Grenade, Super and Melee -- these are the manifest's Mobility, Resilience,
+ * Recovery, Discipline, Intellect and Strength hashes, in that order.
+ *
+ * A wrong hash here is silent: the instance simply has no entry under it, so
+ * the stat reads 0 on every piece of armour rather than failing outright.
  */
 const STAT_HASHES = [
-  { hash: 2996146669, name: 'Weapons' },
+  { hash: 2996146975, name: 'Weapons' },
   { hash: 392767087, name: 'Health' },
-  { hash: 1943344089, name: 'Class' },
-  { hash: 1735426796, name: 'Grenade' },
+  { hash: 1943323491, name: 'Class' },
+  { hash: 1735777505, name: 'Grenade' },
   { hash: 144602215, name: 'Super' },
   { hash: 4244567218, name: 'Melee' }
 ];
