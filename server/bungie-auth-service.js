@@ -169,9 +169,12 @@ async function getProfileData(membershipType, destinyMembershipId) {
 
   const settings = loadSettings();
   // Components:
-  // 100: Profiles, 102: ProfileInventories (Vault), 200: Characters, 201: CharacterInventories,
-  // 205: CharacterEquipment, 300: ItemInstances, 304: ItemSockets, 305: ItemReusablePlugs, 206: CharacterLoadouts
-  const components = '100,102,200,201,205,300,304,305,206';
+  // 100: Profiles, 102: ProfileInventories (Vault), 200: Characters,
+  // 201: CharacterInventories, 202: CharacterProgressions (seasonal artifact),
+  // 205: CharacterEquipment, 206: CharacterLoadouts, 300: ItemInstances,
+  // 304: ItemStats, 305: ItemSockets (and the profile's plug sets),
+  // 310: ItemReusablePlugs -- the subclass options this player actually owns.
+  const components = '100,102,200,201,202,205,206,300,304,305,310';
   const url = `https://www.bungie.net/Platform/Destiny2/${membershipType}/Profile/${destinyMembershipId}/?components=${components}`;
 
   const res = await axios.get(url, {
@@ -231,6 +234,39 @@ async function transferItem(membershipType, characterId, itemReferenceHash, item
   return res.data;
 }
 
+/**
+ * Actions: insert a plug into a socket.
+ *
+ * The "free" insertion covers subclass plugs -- Supers, abilities, Aspects and
+ * Fragments -- and armour mods. Bungie answers with its own verdict in the
+ * body, which is passed back untouched so the client reads one error shape.
+ */
+async function insertSocketPlug(membershipType, characterId, itemInstanceId, socketIndex, plugItemHash) {
+  const token = await getValidAccessToken();
+  if (!token) throw new Error('Not authenticated with Bungie.net');
+
+  const settings = loadSettings();
+  const url = 'https://www.bungie.net/Platform/Destiny2/Actions/Items/InsertSocketPlugFree/';
+
+  const res = await axios.post(url, {
+    plug: {
+      socketIndex,
+      socketArrayType: 0,
+      plugItemHash
+    },
+    itemId: itemInstanceId,
+    characterId,
+    membershipType
+  }, {
+    headers: {
+      'X-API-Key': settings.apiKey || '',
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  return res.data;
+}
+
 // Actions: Equip Loadout
 async function equipLoadout(membershipType, characterId, loadoutIndex) {
   const token = await getValidAccessToken();
@@ -264,5 +300,6 @@ module.exports = {
   getProfileData,
   equipItem,
   transferItem,
-  equipLoadout
+  equipLoadout,
+  insertSocketPlug
 };

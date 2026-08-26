@@ -21,6 +21,23 @@ export const BUCKET_HASHES = Object.freeze({
 /** Everything in the vault reports this bucket, not the slot it would occupy. */
 export const VAULT_BUCKET_HASH = 138197802;
 
+/**
+ * The subclass's own bucket, which the slot cards know nothing about.
+ *
+ * Deliberately outside `BUCKET_HASHES`: a subclass competes with no weapon or
+ * armour piece, so letting it resolve to an equipment slot would put it on a
+ * card it can never be equipped from.
+ */
+export const SUBCLASS_BUCKET_HASH = 3284755031;
+
+/** Is this item a Guardian's subclass, wherever it currently sits? */
+export function isSubclassItem(item) {
+  if (!item) return false;
+  if (item.isSubclass) return true;
+  return Number(item.bucketHash) === SUBCLASS_BUCKET_HASH
+    || Number(item.equipBucketHash) === SUBCLASS_BUCKET_HASH;
+}
+
 export const ARMOR_SLOT_KEYS = Object.freeze(['helmet', 'gauntlets', 'chest', 'legs', 'classItem']);
 export const WEAPON_SLOT_KEYS = Object.freeze(['kinetic', 'energy', 'power']);
 

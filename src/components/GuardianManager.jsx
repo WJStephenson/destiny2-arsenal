@@ -15,7 +15,9 @@ import {
   Search, 
   Filter, 
   Info,
-  Plus 
+  Plus,
+  Flame,
+  Hexagon
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import {
@@ -39,13 +41,36 @@ import {
   ARMOR_SLOT_KEYS,
   WEAPON_SLOT_KEYS,
   SLOT_LABELS,
+  SUBCLASS_BUCKET_HASH,
   equipSlotKey,
   isSameSlot,
+  isSubclassItem,
   slotKeyFromBucketHash
 } from '../utils/destiny-buckets';
+import { buildSubclassModel, applyPlugToModel, insertPlug } from '../utils/subclass';
+import useSwipeNavigation from '../utils/useSwipeNavigation';
 import LongPressable from './LongPressable';
 import ArmourOptimizer from './ArmourOptimizer';
 import SlotPickerModal from './SlotPickerModal';
+import SubclassPanel from './SubclassPanel';
+import ArtifactPanel from './ArtifactPanel';
+import LoadoutsPanel from './LoadoutsPanel';
+
+/**
+ * The Guardian screen's own tabs, in the order a thumb swipes through them:
+ * what you shoot with, what you wear, what you cast, what the season lends you,
+ * and then the two ways of moving all of it around.
+ */
+const SUB_TABS = ['weapons', 'armor', 'class', 'artifact', 'loadouts', 'vault'];
+
+/**
+ * The order subclass plugs have to be applied in.
+ *
+ * Fragments last: their slots only exist once the Aspects granting them are
+ * fitted, so a Fragment sent first is a Fragment the game refuses.
+ */
+const PLUG_APPLY_ORDER = { super: 0, classAbility: 1, movement: 1, melee: 1, grenade: 1, aspect: 2, fragment: 3 };
+const plugApplyOrder = (role) => PLUG_APPLY_ORDER[role] ?? 1;
 
 /** Card headings, which read a little differently from the bare slot names. */
 const WEAPON_SLOT_TITLES = {
@@ -111,6 +136,19 @@ export default function GuardianManager({
   const [vaultSearch, setVaultSearch] = useState('');
   const [vaultFilter, setVaultFilter] = useState('all'); // 'all' | 'weapons' | 'armor'
   const [vaultPickerSlot, setVaultPickerSlot] = useState(null); // { key, title, bag, equipped }
+
+  /**
+   * Left and right swipes move between these tabs on a phone.
+   *
+   * Declared up here with the other hooks: this component returns early when
+   * nobody is signed in, and a hook below that line would change the hook
+   * order between the signed-out and signed-in renders.
+   */
+  const { direction: swipeDirection, swipeHandlers, selectTab } = useSwipeNavigation({
+    tabs: SUB_TABS,
+    activeTab: activeSubTab,
+    onChange: setActiveSubTab
+  });
 
   /**
    * The profile as it stands right now, for the action handlers.
@@ -246,7 +284,9 @@ export default function GuardianManager({
       }
 
       if (membership) {
-        const components = '100,102,200,201,205,300,304,305,206';
+        // 202 carries the seasonal artifact, and 310 the plug options a
+        // player has actually unlocked for their subclass.
+        const components = '100,102,200,201,202,205,206,300,304,305,310';
         const url = `https://www.bungie.net/Platform/Destiny2/${membership.membershipType}/Profile/${membership.membershipId}/?components=${components}&_ts=${Date.now()}`;
         const profileRes = await fetch(url, {
           cache: 'no-store',
@@ -277,6 +317,13 @@ export default function GuardianManager({
     const instances = data.itemComponents?.instances?.data || {};
     const socketsMap = data.itemComponents?.sockets?.data || {};
     const statsMap = data.itemComponents?.stats?.data || {};
+    const progressionsMap = data.characterProgressions?.data || {};
+    // What a subclass socket will take. Bungie sends this per item, and the
+    // plug sets are the same answer from the profile's side; whichever arrives
+    // is what the Class screen offers.
+    const reusablePlugsMap = data.itemComponents?.reusablePlugs?.data || {};
+    const profilePlugSets = data.profilePlugSets?.data?.plugs || {};
+    const characterPlugSetsMap = data.characterPlugSets?.data || {};
 
     // Bind the vault list back onto the payload so the reconciliation below and
     // the vault built further down are the same array -- otherwise a profile
@@ -560,7 +607,7 @@ export default function GuardianManager({
       };
     }
 
-    const characters = Object.values(charsMap).map(char => {
+    const characters = await Promise.all(Object.values(charsMap).map(async char => {
       const charId = char.characterId;
       const classType = char.classType === 0 ? 'Titan' : char.classType === 1 ? 'Hunter' : 'Warlock';
       const rawEquipped = equipMap[charId]?.items || [];
@@ -574,24 +621,64 @@ export default function GuardianManager({
       equipped.forEach(it => { if (it.itemInstanceId) instanceMap.set(it.itemInstanceId, it); });
       bag.forEach(it => { if (it.itemInstanceId) instanceMap.set(it.itemInstanceId, it); });
 
+      // The subclass lives in a bucket of its own, so it never appears on a
+      // weapon or armour card. The ones this Guardian is not running sit in
+      // the same bucket in their bag, which is what makes swapping possible.
+      const equippedSubclassItem = equipped.find(it => Number(it.bucketHash) === SUBCLASS_BUCKET_HASH) || null;
+      const subclassAlternatives = bag.filter(it => Number(it.bucketHash) === SUBCLASS_BUCKET_HASH);
+
+      let subclass = null;
+      if (equippedSubclassItem?.itemInstanceId) {
+        const instanceId = equippedSubclassItem.itemInstanceId;
+        // Only the live definition describes a subclass's sockets -- the
+        // bundled manifest carries weapons, armour and perks alone.
+        const subclassDef = defs[equippedSubclassItem.itemHash] || null;
+        subclass = await buildSubclassModel({
+          item: equippedSubclassItem,
+          liveSockets: socketsMap[instanceId]?.sockets || [],
+          reusablePlugs: reusablePlugsMap[instanceId]?.plugs || null,
+          profilePlugSets,
+          characterPlugSets: characterPlugSetsMap[charId]?.plugs || null,
+          socketEntries: subclassDef?.socketEntries || []
+        });
+      }
+
       const loadouts = (loadoutsMap[charId]?.loadouts || []).map((ld, idx) => {
-        const loadoutItems = (ld.items || [])
-          .filter(it => it.itemInstanceId && it.itemInstanceId !== '0')
-          .map(it => {
-            return instanceMap.get(it.itemInstanceId) || {
-              itemInstanceId: it.itemInstanceId,
-              name: 'Item',
-              icon: null,
-              tierTypeName: 'Legendary'
-            };
+        const rawItems = (ld.items || []).filter(it => it.itemInstanceId && it.itemInstanceId !== '0');
+
+        // A loadout stores its subclass alongside the gear, and its Super,
+        // Aspects and Fragments as the plug hashes on that entry -- the only
+        // record of what the loadout actually plays like.
+        const subclassEntry = rawItems.find(it => {
+          const known = instanceMap.get(it.itemInstanceId);
+          // An instance that is not on this character any more cannot be
+          // looked up, so a long plug list is what identifies it instead:
+          // gear carries a handful, a subclass carries a dozen.
+          return known ? isSubclassItem(known) : (it.plugItemHashes || []).length > 6;
+        }) || null;
+
+        const loadoutItems = rawItems
+          .filter(it => it !== subclassEntry)
+          .map(it => instanceMap.get(it.itemInstanceId) || {
+            itemInstanceId: it.itemInstanceId,
+            name: 'Item',
+            icon: null,
+            tierTypeName: 'Legendary'
           });
 
         return {
           index: idx,
-          name: ld.nameId || `Loadout ${idx + 1}`,
-          items: loadoutItems
+          // The game names loadouts through a definition rather than a
+          // string; the Loadouts screen resolves it.
+          name: `Loadout ${idx + 1}`,
+          nameHash: ld.nameHash ?? null,
+          iconHash: ld.iconHash ?? null,
+          colorHash: ld.colorHash ?? null,
+          items: loadoutItems,
+          subclass: subclassEntry ? instanceMap.get(subclassEntry.itemInstanceId) || null : null,
+          subclassPlugHashes: (subclassEntry?.plugItemHashes || []).filter(h => h)
         };
-      }).filter(ld => ld.items.length > 0);
+      }).filter(ld => ld.items.length > 0 || ld.subclassPlugHashes.length > 0);
 
       return {
         characterId: charId,
@@ -600,9 +687,13 @@ export default function GuardianManager({
         emblemBackgroundPath: char.emblemBackgroundPath ? `https://www.bungie.net${char.emblemBackgroundPath}` : null,
         equipped,
         bag,
-        loadouts
+        loadouts,
+        subclass,
+        subclassAlternatives,
+        // The season's artifact, as the game reports it for this Guardian.
+        artifact: progressionsMap[charId]?.seasonalArtifact || null
       };
-    });
+    }));
 
     const vault = (data.profileInventory?.data?.items || []).map(enrichItem);
 
@@ -1024,6 +1115,159 @@ export default function GuardianManager({
   };
 
   /**
+   * Fit a plug to the subclass -- a Super, an ability, an Aspect, a Fragment.
+   *
+   * Every one of those is the same action against a different socket, so this
+   * covers the whole Class screen. The tile changes under the thumb and is put
+   * back if Bungie rejects the change.
+   */
+  const insertPlugInternal = async (socket, option) => {
+    const profile = profileDataRef.current;
+    const character = profile?.characters?.[selectedCharacterIndex];
+    const subclass = character?.subclass;
+    if (!character || !subclass?.itemInstanceId) return false;
+
+    const membershipType = getMembershipType();
+    if (!membershipType) {
+      finishAction('Sign in again -- the app does not know which platform to act on.');
+      return false;
+    }
+
+    const actionId = `plug_${socket.index}`;
+    setActionLoading(actionId);
+    setStatusMessage(`Fitting ${option.name}...`);
+
+    const revert = applyOptimistic(prev => {
+      const idx = prev.characters?.findIndex(c => c.characterId === character.characterId);
+      if (idx === undefined || idx === -1) return null;
+      const target = prev.characters[idx];
+      if (!target.subclass) return null;
+
+      const characters = [...prev.characters];
+      characters[idx] = {
+        ...target,
+        subclass: applyPlugToModel(target.subclass, socket.index, option)
+      };
+      return { ...prev, characters };
+    });
+
+    const result = await insertPlug({
+      membershipType,
+      characterId: character.characterId,
+      itemInstanceId: subclass.itemInstanceId,
+      socketIndex: socket.index,
+      plugItemHash: option.hash
+    });
+
+    if (!result.ok) {
+      revert();
+      finishAction(result.message, actionId);
+      fetchLiveProfile(false);
+      return false;
+    }
+
+    finishAction(`${option.name} fitted.`, actionId);
+    scheduleProfileRefresh();
+    return true;
+  };
+
+  /**
+   * Put a saved loadout back on: its gear first, then its subclass setup.
+   *
+   * Aspects go in before Fragments because the Fragment slots only exist once
+   * the Aspects that grant them are fitted -- the other order has the game
+   * reject every Fragment in the loadout.
+   */
+  const applyCustomLoadoutInternal = async (loadout) => {
+    const profile = profileDataRef.current;
+    const character = profile?.characters?.[selectedCharacterIndex];
+    if (!character || !loadout) return false;
+
+    const actionId = `custom_${loadout.id}`;
+    setActionLoading(actionId);
+
+    let equippedCount = 0;
+    let failedCount = 0;
+
+    for (const entry of loadout.items || []) {
+      if (!entry.itemInstanceId) continue;
+      setStatusMessage(`Equipping ${entry.name}...`);
+      const ok = await equipItemInternal(entry.itemInstanceId);
+      if (ok) equippedCount += 1;
+      else failedCount += 1;
+      // Each equip closes out its own spinner; this action is still running.
+      setActionLoading(actionId);
+    }
+
+    // The subclass has to be the one equipped before its sockets will take
+    // anything, and a saved loadout names the instance it was captured from.
+    let plugFailures = 0;
+    const savedSubclass = loadout.subclass;
+    if (savedSubclass?.plugs?.length) {
+      const current = profileDataRef.current?.characters?.find(c => c.characterId === character.characterId);
+      const wanted = [current?.subclass, ...(current?.subclassAlternatives || [])]
+        .find(it => it && String(it.itemHash) === String(savedSubclass.itemHash));
+
+      if (!wanted) {
+        finishAction(
+          `${loadout.name}: gear equipped, but that subclass is not on this Guardian.`,
+          actionId
+        );
+        scheduleProfileRefresh();
+        return equippedCount > 0;
+      }
+
+      const alreadyRunning = String(current?.subclass?.itemHash) === String(savedSubclass.itemHash);
+
+      // What that subclass is already wearing, so a loadout that is halfway on
+      // does not re-send changes the game has already made.
+      const fitted = new Map();
+      if (alreadyRunning) {
+        (current.subclass.editableSockets || []).forEach(socket => {
+          if (socket.plugHash) fitted.set(socket.index, String(socket.plugHash));
+        });
+      } else {
+        setStatusMessage(`Equipping ${savedSubclass.name || 'subclass'}...`);
+        await equipItemInternal(wanted.itemInstanceId);
+        setActionLoading(actionId);
+      }
+
+      const membershipType = getMembershipType();
+      const subclassInstanceId = wanted.itemInstanceId;
+      const ordered = [...savedSubclass.plugs].sort(
+        (a, b) => plugApplyOrder(a.role) - plugApplyOrder(b.role)
+      );
+
+      for (const plug of ordered) {
+        if (fitted.get(plug.socketIndex) === String(plug.plugHash)) continue;
+        setStatusMessage(`Fitting ${plug.name || 'subclass plug'}...`);
+        const result = await insertPlug({
+          membershipType,
+          characterId: character.characterId,
+          itemInstanceId: subclassInstanceId,
+          socketIndex: plug.socketIndex,
+          plugItemHash: plug.plugHash
+        });
+        if (!result.ok) plugFailures += 1;
+      }
+    }
+
+    const problems = [
+      failedCount ? `${failedCount} item${failedCount === 1 ? '' : 's'} could not be equipped` : null,
+      plugFailures ? `${plugFailures} subclass change${plugFailures === 1 ? '' : 's'} were rejected` : null
+    ].filter(Boolean);
+
+    finishAction(
+      problems.length
+        ? `${loadout.name} applied -- ${problems.join(', ')}.`
+        : `${loadout.name} applied.`,
+      actionId
+    );
+    scheduleProfileRefresh();
+    return failedCount === 0 && plugFailures === 0;
+  };
+
+  /**
    * Inventory actions run one at a time.
    *
    * Each action reads the profile, applies an optimistic change and can roll
@@ -1102,6 +1346,10 @@ export default function GuardianManager({
 
   const handleEquipLoadout = (loadoutIndex) => runExclusive(() => equipLoadoutInternal(loadoutIndex));
 
+  const handleInsertPlug = (socket, option) => runExclusive(() => insertPlugInternal(socket, option));
+
+  const handleApplyCustomLoadout = (loadout) => runExclusive(() => applyCustomLoadoutInternal(loadout));
+
 
   if (!authSession?.authenticated) {
     return (
@@ -1156,6 +1404,16 @@ export default function GuardianManager({
   }, Object.fromEntries(STAT_KEYS.map(key => [key, 0])));
   const inventoryItems = activeChar?.bag || [];
   const loadoutsList = activeChar?.loadouts || [];
+  const activeSubclass = activeChar?.subclass || null;
+
+  /** Every artifact the account is running, one per Guardian. */
+  const artifacts = (profileData?.characters || [])
+    .filter(char => char.artifact?.artifactHash)
+    .map(char => ({
+      ...char.artifact,
+      characterId: char.characterId,
+      classType: char.classType
+    }));
 
   /**
    * One card per equipment slot. The slot comes from the item's own bucket,
@@ -1231,7 +1489,10 @@ export default function GuardianManager({
   });
 
   return (
-    <div className="space-y-6">
+    /* A left or right swipe anywhere on this screen moves between the tabs
+       below -- except inside a row that scrolls sideways of its own, which
+       owns the gesture that started in it. */
+    <div className="space-y-6" {...swipeHandlers}>
       
       {/* Top Character Selector & Refresh */}
       <div className="bg-[#121722] border border-[#20293a] rounded-2xl p-4 sm:p-5 shadow-xl space-y-4">
@@ -1302,56 +1563,37 @@ export default function GuardianManager({
           })}
         </div>
 
-        {/* Clear Sub-Tab Navigation Bar */}
+        {/* Sub-Tab Navigation Bar. Swipe left or right on a phone to move
+            through these in the same order. */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-2 border-t border-[#20293a]">
-          
-          <button
-            onClick={() => setActiveSubTab('weapons')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
-              activeSubTab === 'weapons' 
-                ? 'bg-amber-500 text-black shadow-md' 
-                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-            }`}
-          >
-            <Crosshair className="w-3.5 h-3.5" />
-            <span>Weapons ({equippedWeapons.length})</span>
-          </button>
 
-          <button
-            onClick={() => setActiveSubTab('armor')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
-              activeSubTab === 'armor' 
-                ? 'bg-amber-500 text-black shadow-md' 
-                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-            }`}
-          >
-            <Shield className="w-3.5 h-3.5" />
-            <span>Armour ({equippedArmor.length})</span>
-          </button>
+          {SUB_TABS.map(tab => {
+            const meta = {
+              weapons: { icon: Crosshair, label: `Weapons (${equippedWeapons.length})` },
+              armor: { icon: Shield, label: `Armour (${equippedArmor.length})` },
+              class: { icon: Flame, label: activeSubclass ? `Class • ${activeSubclass.name}` : 'Class' },
+              artifact: { icon: Hexagon, label: 'Artifact' },
+              loadouts: { icon: Zap, label: `Loadouts (${loadoutsList.length})` },
+              vault: { icon: Box, label: `Vault (${profileData?.vault?.length || 0})` }
+            }[tab];
+            const Icon = meta.icon;
+            const isActive = activeSubTab === tab;
 
-          <button
-            onClick={() => setActiveSubTab('loadouts')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
-              activeSubTab === 'loadouts' 
-                ? 'bg-amber-500 text-black shadow-md' 
-                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>Loadouts ({loadoutsList.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveSubTab('vault')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
-              activeSubTab === 'vault' 
-                ? 'bg-amber-500 text-black shadow-md' 
-                : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
-            }`}
-          >
-            <Box className="w-3.5 h-3.5" />
-            <span>Vault ({profileData?.vault?.length || 0})</span>
-          </button>
+            return (
+              <button
+                key={tab}
+                onClick={() => selectTab(tab)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold font-heading tracking-wide whitespace-nowrap transition-all ${
+                  isActive
+                    ? 'bg-amber-500 text-black shadow-md'
+                    : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 ${isActive ? '' : 'text-amber-400'}`} />
+                <span className="max-w-[10rem] truncate">{meta.label}</span>
+              </button>
+            );
+          })}
 
         </div>
 
@@ -1363,6 +1605,12 @@ export default function GuardianManager({
           <span>{statusMessage}</span>
         </div>
       )}
+
+      {/* The tab panels, sliding in from the side the thumb came from. */}
+      <div
+        key={activeSubTab}
+        className={swipeDirection === 'left' ? 'animate-slideInLeft' : swipeDirection === 'right' ? 'animate-slideInRight' : ''}
+      >
 
       {/* Sub-Tab 1: EQUIPPED WEAPONS */}
       {activeSubTab === 'weapons' && (
@@ -1383,19 +1631,7 @@ export default function GuardianManager({
                   <div>
                     {/* Slot Header */}
                     <div className="px-3.5 py-2 bg-[#0b0e14] border-b border-[#1e2638] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
-                      <div className="flex items-center gap-2">
-                        <span>{slotGroup.title}</span>
-                        {slotGroup.bag.length < 9 && (
-                          <button
-                            onClick={() => setVaultPickerSlot(slotGroup)}
-                            className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 text-[10px] font-bold text-amber-400 font-mono tracking-normal normal-case transition-all shadow-sm"
-                            title={`Add ${slotGroup.title} from the Vault or another Guardian`}
-                          >
-                            <Plus className="w-3 h-3 text-amber-400" />
-                            <span>Add item</span>
-                          </button>
-                        )}
-                      </div>
+                      <span>{slotGroup.title}</span>
                       <span className="text-[11px] text-amber-400 font-mono">
                         {item.power ? `✧ ${item.power}` : ''}
                       </span>
@@ -1537,15 +1773,6 @@ export default function GuardianManager({
 
                   </div>
 
-                  {/* The game cannot store an equipped item, so this card offers
-                      no vault action -- only the reason there isn't one. */}
-                  <div className="p-2 bg-[#0e131d] border-t border-[#1e2638]">
-                    <p className="text-[11px] text-slate-500 font-mono flex items-center justify-center gap-1.5 text-center">
-                      <Box className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
-                      <span>Equip something else here to vault this</span>
-                    </p>
-                  </div>
-
                 </div>
               );
             })}
@@ -1635,19 +1862,7 @@ export default function GuardianManager({
                     <div>
                       {/* Slot Header */}
                       <div className="px-3.5 py-2 bg-[#0b0e14] border-b border-[#1e2638] flex items-center justify-between text-xs font-heading font-bold text-slate-300 uppercase tracking-wider">
-                        <div className="flex items-center gap-2">
-                          <span>{slotGroup.title}</span>
-                          {slotGroup.bag.length < 9 && (
-                            <button
-                              onClick={() => setVaultPickerSlot(slotGroup)}
-                              className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 hover:border-amber-500/60 text-[10px] font-bold text-amber-400 font-mono tracking-normal normal-case transition-all shadow-sm"
-                              title={`Add ${slotGroup.title} from the Vault or another Guardian`}
-                            >
-                              <Plus className="w-3 h-3 text-amber-400" />
-                              <span>Add item</span>
-                            </button>
-                          )}
-                        </div>
+                        <span>{slotGroup.title}</span>
                         <div className="flex items-center gap-2">
                           {item.armorStats?.total ? (
                             <span className="text-[11px] text-slate-400 font-mono">
@@ -1800,15 +2015,6 @@ export default function GuardianManager({
 
                     </div>
 
-                    {/* The game cannot store an equipped item, so this card offers
-                        no vault action -- only the reason there isn't one. */}
-                    <div className="p-2 bg-[#0e131d] border-t border-[#1e2638]">
-                      <p className="text-[11px] text-slate-500 font-mono flex items-center justify-center gap-1.5 text-center">
-                        <Box className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
-                        <span>Equip something else here to vault this</span>
-                      </p>
-                    </div>
-
                   </div>
                 );
               })}
@@ -1829,70 +2035,41 @@ export default function GuardianManager({
         </div>
       )}
 
-      {/* Sub-Tab 3: IN-GAME LOADOUTS */}
-      {activeSubTab === 'loadouts' && (
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {loadoutsList.map((ld) => (
-              <div
-                key={ld.index}
-                className="bg-[#121722] border border-[#20293a] hover:border-amber-500/40 rounded-xl p-5 space-y-4 transition-all shadow-lg flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between pb-3 border-b border-[#20293a]">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center font-bold text-amber-300 font-heading text-lg">
-                        #{ld.index + 1}
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-white text-base font-heading">
-                          {ld.name || `Loadout ${ld.index + 1}`}
-                        </h4>
-                        <p className="text-xs text-slate-400">
-                          {ld.items.length} Equipped gear items
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Visual Items Grid */}
-                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2 pt-3">
-                    {ld.items.map((it, idx) => (
-                      <div
-                        key={idx}
-                        className="relative group rounded-lg bg-black/50 border border-slate-800 p-1 flex flex-col items-center justify-center overflow-hidden"
-                        title={it.name}
-                      >
-                        <div className="w-10 h-10 rounded overflow-hidden bg-slate-900 flex items-center justify-center">
-                          {it.icon ? (
-                            <img src={it.icon} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <Shield className="w-5 h-5 text-slate-600" />
-                          )}
-                        </div>
-                        <span className="text-[9px] text-slate-300 font-mono truncate w-full text-center mt-1">
-                          {it.name}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <button
-                  disabled={!!actionLoading}
-                  onClick={() => handleEquipLoadout(ld.index)}
-                  className="w-full py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs font-mono flex items-center justify-center gap-2 transition-colors disabled:opacity-50 shadow-md"
-                >
-                  <Zap className="w-4 h-4" />
-                  <span>{actionLoading === `loadout_${ld.index}` ? 'Equipping...' : '⚡ Equip Full Loadout in Game'}</span>
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Sub-Tab 3: SUBCLASS, ASPECTS & FRAGMENTS */}
+      {activeSubTab === 'class' && (
+        <SubclassPanel
+          subclass={activeSubclass}
+          subclassOptions={activeChar?.subclassAlternatives || []}
+          onInsertPlug={handleInsertPlug}
+          onEquipSubclass={handleEquipItem}
+          actionLoading={actionLoading}
+          onOpenInfo={onOpenInfo}
+        />
       )}
 
-      {/* Sub-Tab 5: VAULT STORAGE */}
+      {/* Sub-Tab 4: SEASONAL ARTIFACT */}
+      {activeSubTab === 'artifact' && (
+        <ArtifactPanel
+          artifacts={artifacts}
+          activeCharacterId={activeChar?.characterId}
+          onOpenInfo={onOpenInfo}
+        />
+      )}
+
+      {/* Sub-Tab 5: IN-GAME & SAVED LOADOUTS */}
+      {activeSubTab === 'loadouts' && (
+        <LoadoutsPanel
+          loadouts={loadoutsList}
+          activeChar={activeChar}
+          subclass={activeSubclass}
+          onEquipLoadout={handleEquipLoadout}
+          onApplyCustomLoadout={handleApplyCustomLoadout}
+          actionLoading={actionLoading}
+          onOpenInfo={onOpenInfo}
+        />
+      )}
+
+      {/* Sub-Tab 6: VAULT STORAGE */}
       {activeSubTab === 'vault' && (
         <div className="space-y-4">
           
@@ -2011,6 +2188,8 @@ export default function GuardianManager({
 
         </div>
       )}
+
+      </div>
 
       {/* Vault Slot Picker Modal */}
       {currentPickerSlotGroup && (

@@ -268,6 +268,31 @@ app.post('/api/inventory/equip-loadout', async (req, res) => {
   }
 });
 
+// 21. Insert Socket Plug (subclass Supers, abilities, Aspects, Fragments)
+app.post('/api/inventory/insert-plug', async (req, res) => {
+  const { membershipType, characterId, itemInstanceId, socketIndex, plugItemHash } = req.body || {};
+  if (membershipType === undefined || !characterId || !itemInstanceId
+    || socketIndex === undefined || plugItemHash === undefined) {
+    return res.status(400).json({ error: 'Missing membershipType, characterId, itemInstanceId, socketIndex, or plugItemHash' });
+  }
+  try {
+    const result = await bungieAuth.insertSocketPlug(
+      membershipType,
+      characterId,
+      itemInstanceId,
+      socketIndex,
+      plugItemHash
+    );
+    res.json(result);
+  } catch (err) {
+    // Bungie's own verdict, when it gave one -- the client reads ErrorCode to
+    // tell a rejected change from an unreachable server.
+    const payload = err.response?.data;
+    if (payload && payload.ErrorCode !== undefined) return res.json(payload);
+    res.status(500).json({ error: payload?.Message || err.message });
+  }
+});
+
 // Serve frontend in production
 const distPath = path.join(__dirname, '..', 'dist');
 if (fs.existsSync(distPath)) {

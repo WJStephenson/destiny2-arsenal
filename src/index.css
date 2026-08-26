@@ -71,6 +71,32 @@
   animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
+/* Tab panels arriving from the side the thumb swiped from. */
+@keyframes slideInFromRight {
+  from { transform: translateX(6%); opacity: 0.35; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+@keyframes slideInFromLeft {
+  from { transform: translateX(-6%); opacity: 0.35; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.animate-slideInLeft {
+  animation: slideInFromRight 0.18s ease-out forwards;
+}
+
+.animate-slideInRight {
+  animation: slideInFromLeft 0.18s ease-out forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slideInLeft,
+  .animate-slideInRight {
+    animation: fadeIn 0.15s ease-out forwards;
+  }
+}
+
 /* Custom modern scrollbar */
 ::-webkit-scrollbar {
   width: 5px;

@@ -1,5 +1,8 @@
 import { getStoredSettings } from './auth-storage';
 
+/** DestinyItemType.Subclass -- the only reliable marker of a subclass item. */
+const SUBCLASS_ITEM_TYPE = 16;
+
 const memoryCache = new Map();
 
 /** Bungie's error code for 'you are asking too quickly'. */
@@ -53,7 +56,7 @@ export async function getItemDefinition(itemHash) {
 
   // Try sessionStorage
   try {
-    const cached = sessionStorage.getItem(`d2_def2_${hashKey}`);
+    const cached = sessionStorage.getItem(`d2_def3_${hashKey}`);
     if (cached) {
       const parsed = JSON.parse(cached);
       memoryCache.set(hashKey, parsed);
@@ -101,12 +104,32 @@ export async function getItemDefinition(itemHash) {
         isArmor: data.Response.itemType === 2,
         // Armour set membership, for set-bonus targeting. Not the item's own
         // `setData` -- that one is for quest step lists.
-        setHash: data.Response.equippingBlock?.equipableItemSetHash ?? null
+        setHash: data.Response.equippingBlock?.equipableItemSetHash ?? null,
+        // Bungie's own item type, which is the only thing that names a
+        // subclass (16) or an artifact (28) outright.
+        itemType: data.Response.itemType ?? null,
+        isSubclass: data.Response.itemType === SUBCLASS_ITEM_TYPE,
+        // Plug identity. Supers, abilities, aspects and fragments are all
+        // plugs, and this is what tells them apart -- their category
+        // identifier reads like 'hunter.arc.aspects' or 'shared.fragments'.
+        plugCategoryIdentifier: data.Response.plug?.plugCategoryIdentifier || null,
+        plugCategoryHash: data.Response.plug?.plugCategoryHash ?? null,
+        // Where a subclass's own sockets get their options from, for the
+        // plugs the live profile did not list.
+        socketEntries: (data.Response.sockets?.socketEntries || []).map(entry => ({
+          socketTypeHash: entry.socketTypeHash ?? null,
+          singleInitialItemHash: entry.singleInitialItemHash ?? null,
+          reusablePlugSetHash: entry.reusablePlugSetHash ?? null,
+          randomizedPlugSetHash: entry.randomizedPlugSetHash ?? null,
+          reusablePlugItems: (entry.reusablePlugItems || [])
+            .map(p => p.plugItemHash)
+            .filter(h => h !== null && h !== undefined)
+        }))
       };
 
       memoryCache.set(hashKey, def);
       try {
-        sessionStorage.setItem(`d2_def2_${hashKey}`, JSON.stringify(def));
+        sessionStorage.setItem(`d2_def3_${hashKey}`, JSON.stringify(def));
       } catch (e) {}
 
       return def;
