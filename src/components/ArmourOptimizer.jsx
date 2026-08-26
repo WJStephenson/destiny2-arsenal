@@ -610,7 +610,7 @@ export default function ArmourOptimizer({
 
           {availableSets.length === 0 && (
             <p className="text-[10px] font-mono text-slate-500">
-              No set bonuses found in your armour. Re-sync the manifest if this looks wrong.
+              No set bonuses found in your armour.
             </p>
           )}
         </div>
@@ -678,7 +678,7 @@ export default function ArmourOptimizer({
             <AlertCircle className="w-6 h-6 text-slate-500 mx-auto" />
             <h4 className="text-sm font-bold text-slate-300 font-heading">Not enough armour</h4>
             <p className="text-xs text-slate-500">
-              The optimizer needs at least one piece in every slot. Pull some armour out of the vault and refresh.
+              The optimizer needs at least one piece in every slot.
             </p>
           </div>
         ) : (

@@ -170,11 +170,11 @@ async function getProfileData(membershipType, destinyMembershipId) {
   const settings = loadSettings();
   // Components:
   // 100: Profiles, 102: ProfileInventories (Vault), 200: Characters,
-  // 201: CharacterInventories, 202: CharacterProgressions (seasonal artifact),
-  // 205: CharacterEquipment, 206: CharacterLoadouts, 300: ItemInstances,
-  // 304: ItemStats, 305: ItemSockets (and the profile's plug sets),
+  // 201: CharacterInventories, 205: CharacterEquipment,
+  // 206: CharacterLoadouts, 300: ItemInstances, 304: ItemStats,
+  // 305: ItemSockets (and the profile's plug sets),
   // 310: ItemReusablePlugs -- the subclass options this player actually owns.
-  const components = '100,102,200,201,202,205,206,300,304,305,310';
+  const components = '100,102,200,201,205,206,300,304,305,310';
   const url = `https://www.bungie.net/Platform/Destiny2/${membershipType}/Profile/${destinyMembershipId}/?components=${components}`;
 
   const res = await axios.get(url, {

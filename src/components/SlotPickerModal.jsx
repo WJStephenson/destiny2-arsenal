@@ -93,8 +93,8 @@ function ItemIcon({ item }) {
  * Pick a piece of gear to bring to the character on screen.
  *
  * Everything the player owns for this slot and cannot already reach -- the
- * vault, and the other Guardians' inventories -- in one grid. Tap a tile to
- * bring the item over; hold it to inspect the roll.
+ * vault, and the other Guardians' inventories -- in one grid. A tile brings
+ * the item over; holding one inspects the roll.
  */
 export default function SlotPickerModal({
   slotGroup,
@@ -524,8 +524,8 @@ export default function SlotPickerModal({
 
         {/* Footer */}
         <div className="sheet-safe-bottom px-4 py-3 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
-          <span className={`text-[11px] font-mono truncate ${note ? 'text-amber-300' : 'text-slate-400'}`}>
-            {note || 'Tap to bring over • Hold to inspect'}
+          <span className="text-[11px] font-mono truncate text-amber-300">
+            {note}
           </span>
           <button
             onClick={onClose}

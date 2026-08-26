@@ -44,9 +44,6 @@ export default function WishlistManager({
             <Bookmark className="w-5 h-5 text-pink-400" />
             Saved God Rolls & Wishlist ({wishlists.length})
           </h2>
-          <p className="text-xs text-slate-400 mt-1">
-            Store and organize favorite weapon rolls with perk combinations and copy directly to Destiny Item Manager (DIM).
-          </p>
         </div>
 
         {wishlists.length > 0 && (
@@ -67,9 +64,6 @@ export default function WishlistManager({
         <div className="p-16 text-center bg-[#121722] border border-[#20293a] rounded-2xl max-w-xl mx-auto space-y-3">
           <Bookmark className="w-12 h-12 text-slate-600 mx-auto" />
           <h3 className="text-lg font-bold text-slate-200 font-heading">No saved rolls yet</h3>
-          <p className="text-xs text-slate-400">
-            Click the bookmark icon on any weapon card or modal to save your desired rolls here.
-          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

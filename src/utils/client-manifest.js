@@ -118,12 +118,6 @@ export function getFiltersMetadata() {
       'Raid', 'Dungeon', 'Nightfall / Vanguard', 'Trials of Osiris',
       'Iron Banner', 'Crucible', 'Into the Light / Onslaught',
       'Exotic Quest / Archive', 'Seasonal / Episode', 'World Drop'
-    ],
-    popularPerks: [
-      'Incandescent', 'Voltshot', 'Kinetic Tremors', 'Bait and Switch',
-      'Destabilizing Rounds', 'Precision Instrument', 'Reconstruction', 'Rewind Rounds',
-      'Heal Clip', 'Firefly', 'Explosive Payload', 'Demolitionist',
-      'Frenzy', 'Target Lock', 'Hatchling', 'Headstone'
     ]
   };
 }

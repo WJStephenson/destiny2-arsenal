@@ -197,10 +197,7 @@ function GameLoadoutCard({ loadout, onEquip, actionLoading, onOpenInfo }) {
 
         {/* Subclass configuration */}
         {plugs === null && (
-          <div className="flex items-center gap-2 text-[11px] text-slate-500 font-mono">
-            <RefreshCw className="w-3 h-3 animate-spin" />
-            <span>Reading subclass setup...</span>
-          </div>
+          <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-600" />
         )}
 
         {plugs !== null && plugs.length > 0 && (
@@ -522,10 +519,6 @@ export default function LoadoutsPanel({
               <Bookmark className="w-7 h-7 text-slate-600 mx-auto" />
               <p className="text-sm text-slate-400">
                 Nothing saved for your {activeChar?.classType || 'Guardian'} yet.
-              </p>
-              <p className="text-xs text-slate-500">
-                Name what you are wearing above and save it -- gear and subclass setup both come back
-                when you apply it.
               </p>
             </div>
           )}

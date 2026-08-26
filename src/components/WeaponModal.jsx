@@ -341,9 +341,6 @@ export default function WeaponModal({
                   <Sparkles className="w-4 h-4 text-amber-400" />
                   All Possible Perk Rolls (Armory Matrix)
                 </h3>
-                <span className="text-[11px] text-slate-400 font-mono">
-                  Tap or hold any perk to inspect
-                </span>
               </div>
 
               {/* Laid out the way the roll actually reads: one column per
@@ -416,9 +413,6 @@ export default function WeaponModal({
                 <h3 className="text-xs sm:text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
                   Weapon Statistics
                 </h3>
-                <span className="text-[11px] text-slate-500 font-mono">
-                  Tap stat for mechanics & scaling info
-                </span>
               </div>
 
               {/* Discrete Numerical Stats Bar (Magazine, RPM, Charge Time, Zoom) */}

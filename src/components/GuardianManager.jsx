@@ -16,8 +16,7 @@ import {
   Filter, 
   Info,
   Plus,
-  Flame,
-  Hexagon
+  Flame
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import {
@@ -53,15 +52,14 @@ import LongPressable from './LongPressable';
 import ArmourOptimizer from './ArmourOptimizer';
 import SlotPickerModal from './SlotPickerModal';
 import SubclassPanel from './SubclassPanel';
-import ArtifactPanel from './ArtifactPanel';
 import LoadoutsPanel from './LoadoutsPanel';
 
 /**
  * The Guardian screen's own tabs, in the order a thumb swipes through them:
- * what you shoot with, what you wear, what you cast, what the season lends you,
- * and then the two ways of moving all of it around.
+ * what you shoot with, what you wear, what you cast, and then the two ways of
+ * moving all of it around.
  */
-const SUB_TABS = ['weapons', 'armor', 'class', 'artifact', 'loadouts', 'vault'];
+const SUB_TABS = ['weapons', 'armor', 'class', 'loadouts', 'vault'];
 
 /**
  * The order subclass plugs have to be applied in.
@@ -307,9 +305,9 @@ export default function GuardianManager({
       }
 
       if (membership) {
-        // 202 carries the seasonal artifact, and 310 the plug options a
-        // player has actually unlocked for their subclass.
-        const components = '100,102,200,201,202,205,206,300,304,305,310';
+        // 310 carries the plug options a player has actually unlocked for
+        // their subclass.
+        const components = '100,102,200,201,205,206,300,304,305,310';
         const url = `https://www.bungie.net/Platform/Destiny2/${membership.membershipType}/Profile/${membership.membershipId}/?components=${components}&_ts=${Date.now()}`;
         const profileRes = await fetch(url, {
           cache: 'no-store',
@@ -340,7 +338,6 @@ export default function GuardianManager({
     const instances = data.itemComponents?.instances?.data || {};
     const socketsMap = data.itemComponents?.sockets?.data || {};
     const statsMap = data.itemComponents?.stats?.data || {};
-    const progressionsMap = data.characterProgressions?.data || {};
     // What a subclass socket will take. Bungie sends this per item, and the
     // plug sets are the same answer from the profile's side; whichever arrives
     // is what the Class screen offers.
@@ -712,9 +709,7 @@ export default function GuardianManager({
         bag,
         loadouts,
         subclass,
-        subclassAlternatives,
-        // The season's artifact, as the game reports it for this Guardian.
-        artifact: progressionsMap[charId]?.seasonalArtifact || null
+        subclassAlternatives
       };
     }));
 
@@ -998,7 +993,7 @@ export default function GuardianManager({
     const item = inBag || inVault;
 
     if (!item) {
-      finishAction('That item is no longer where the app expected it. Refreshing...');
+      finishAction(`${item.name} has moved. Refreshing...`);
       fetchLiveProfile(false);
       return false;
     }
@@ -1326,7 +1321,7 @@ export default function GuardianManager({
 
     const source = findItemLocation(item, profile);
     if (!source) {
-      finishAction('That item is no longer where the app expected it. Refreshing...');
+      finishAction(`${item.name} has moved. Refreshing...`);
       fetchLiveProfile(false);
       return false;
     }
@@ -1386,7 +1381,7 @@ export default function GuardianManager({
             Connect Your Destiny 2 Account
           </h2>
           <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
-            Link your Bungie.net account to inspect your Guardians' live gear, browse your Vault, transfer weapons in real-time, and switch in-game loadouts with 1 tap.
+            Your Guardians' gear, your Vault, and your loadouts.
           </p>
         </div>
 
@@ -1428,15 +1423,6 @@ export default function GuardianManager({
   const inventoryItems = activeChar?.bag || [];
   const loadoutsList = activeChar?.loadouts || [];
   const activeSubclass = activeChar?.subclass || null;
-
-  /** Every artifact the account is running, one per Guardian. */
-  const artifacts = (profileData?.characters || [])
-    .filter(char => char.artifact?.artifactHash)
-    .map(char => ({
-      ...char.artifact,
-      characterId: char.characterId,
-      classType: char.classType
-    }));
 
   /**
    * One card per equipment slot. The slot comes from the item's own bucket,
@@ -1595,7 +1581,6 @@ export default function GuardianManager({
               weapons: { icon: Crosshair, label: `Weapons (${equippedWeapons.length})` },
               armor: { icon: Shield, label: `Armour (${equippedArmor.length})` },
               class: { icon: Flame, label: activeSubclass ? `Class • ${activeSubclass.name}` : 'Class' },
-              artifact: { icon: Hexagon, label: 'Artifact' },
               loadouts: { icon: Zap, label: `Loadouts (${loadoutsList.length})` },
               vault: { icon: Box, label: `Vault (${profileData?.vault?.length || 0})` }
             }[tab];
@@ -1669,7 +1654,7 @@ export default function GuardianManager({
                         <div 
                           onClick={() => onSelectWeapon?.(item)}
                           className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-sm"
-                          title="Click for weapon details"
+                          title={item.name}
                         >
                           {item.icon && (
                             <img src={item.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
@@ -1734,9 +1719,8 @@ export default function GuardianManager({
 
                     {/* Quick Swap Inventory Row */}
                     <div className="p-3 bg-[#0b0e14] space-y-1.5">
-                      <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
-                        <span>Inventory ({slotGroup.bag.length}/9)</span>
-                        <span className="text-[10px] text-slate-500">Tap to equip • Hold for info</span>
+                      <div className="text-xs text-slate-400 font-mono">
+                        Inventory ({slotGroup.bag.length}/9)
                       </div>
 
                       <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -1758,7 +1742,7 @@ export default function GuardianManager({
                                   ? 'opacity-40 cursor-not-allowed'
                                   : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
                               }`}
-                              title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
+                              title={bagItem.power ? `${bagItem.name} (${bagItem.power})` : bagItem.name}
                             >
                               {bagItem.icon ? (
                                 <img src={bagItem.icon} alt="" className="w-full h-full object-cover rounded-lg" />
@@ -1909,7 +1893,7 @@ export default function GuardianManager({
                           <div 
                             onClick={() => onSelectArmor?.(item)}
                             className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-sm"
-                            title="Click for armour details"
+                            title={item.name}
                           >
                             {item.icon && (
                               <img src={item.icon} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
@@ -1979,9 +1963,8 @@ export default function GuardianManager({
 
                       {/* Quick Swap Inventory Row */}
                       <div className="p-3 bg-[#0b0e14] space-y-1.5">
-                        <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
-                          <span>Inventory ({slotGroup.bag.length}/9)</span>
-                          <span className="text-[10px] text-slate-500">Tap to equip</span>
+                        <div className="text-xs text-slate-400 font-mono">
+                          Inventory ({slotGroup.bag.length}/9)
                         </div>
 
                         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -2000,7 +1983,7 @@ export default function GuardianManager({
                                     ? 'opacity-40 cursor-not-allowed'
                                     : 'hover:border-amber-400 cursor-pointer hover:scale-105 active:scale-95'
                                 }`}
-                                title={`${bagItem.name} (${bagItem.power || ''}) - Tap to Equip`}
+                                title={bagItem.power ? `${bagItem.name} (${bagItem.power})` : bagItem.name}
                               >
                                 {bagItem.icon ? (
                                   <img src={bagItem.icon} alt="" className="w-full h-full object-cover rounded-lg" />
@@ -2071,16 +2054,7 @@ export default function GuardianManager({
         />
       )}
 
-      {/* Sub-Tab 4: SEASONAL ARTIFACT */}
-      {activeSubTab === 'artifact' && (
-        <ArtifactPanel
-          artifacts={artifacts}
-          activeCharacterId={activeChar?.characterId}
-          onOpenInfo={onOpenInfo}
-        />
-      )}
-
-      {/* Sub-Tab 5: IN-GAME & SAVED LOADOUTS */}
+      {/* Sub-Tab 4: IN-GAME & SAVED LOADOUTS */}
       {activeSubTab === 'loadouts' && (
         <LoadoutsPanel
           loadouts={loadoutsList}
@@ -2093,7 +2067,7 @@ export default function GuardianManager({
         />
       )}
 
-      {/* Sub-Tab 6: VAULT STORAGE */}
+      {/* Sub-Tab 5: VAULT STORAGE */}
       {activeSubTab === 'vault' && (
         <div className="space-y-4">
           

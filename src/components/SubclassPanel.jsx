@@ -178,9 +178,7 @@ function PlugPickerSheet({ socket, onClose, onSelect, applying }) {
             <div>
               <h3 className="font-heading font-bold text-white text-lg">Choose {roleLabel}</h3>
               <p className="text-xs text-slate-400">
-                {options === null
-                  ? 'Loading what you have unlocked...'
-                  : `${options.length} available`}
+                {options === null ? '' : `${options.length} available`}
               </p>
             </div>
             <button
@@ -207,9 +205,8 @@ function PlugPickerSheet({ socket, onClose, onSelect, applying }) {
 
         <div className="sheet-scroll sheet-safe-bottom flex-1 p-3 space-y-2">
           {options === null && (
-            <div className="py-10 flex items-center justify-center gap-2 text-slate-400 text-sm">
-              <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
-              <span>Reading your unlocks from Bungie...</span>
+            <div className="py-10 flex items-center justify-center">
+              <RefreshCw className="w-5 h-5 animate-spin text-amber-400" />
             </div>
           )}
 
@@ -304,8 +301,7 @@ export default function SubclassPanel({
       <div className="bg-[#121722] border border-[#20293a] rounded-2xl p-8 text-center space-y-3">
         <Shield className="w-8 h-8 text-slate-600 mx-auto" />
         <p className="text-sm text-slate-400">
-          No subclass found on this Guardian yet. Refresh once you have logged into the game on this
-          character.
+          No subclass on this Guardian.
         </p>
       </div>
     );
@@ -374,7 +370,7 @@ export default function SubclassPanel({
                     key={option.itemInstanceId}
                     onClick={() => { if (!blocked) onEquipSubclass?.(option.itemInstanceId); }}
                     onLongPress={() => onOpenInfo?.({ ...option, type: 'subclass' })}
-                    title={`${option.name} - Tap to equip`}
+                    title={option.name}
                     className={`relative w-12 h-12 rounded-xl bg-black/70 border ${optionDamage.border} overflow-hidden flex-shrink-0 flex items-center justify-center transition-all ${
                       blocked
                         ? 'opacity-40 cursor-not-allowed'
@@ -445,12 +441,6 @@ export default function SubclassPanel({
           pendingSocket={pendingSocket}
           details={details}
         />
-
-        <p className="text-[11px] text-slate-500 font-mono">
-          {slotsFromAspects > 0
-            ? `Your Aspects pay for ${slotsFromAspects} Fragment slot${slotsFromAspects === 1 ? '' : 's'} -- swap an Aspect and the game re-counts them.`
-            : 'Fragment slots come from the Aspects you fit -- swap an Aspect and the game re-counts them.'}
-        </p>
       </div>
 
       {pickerSocket && (

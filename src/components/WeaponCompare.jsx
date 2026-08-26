@@ -93,9 +93,6 @@ export default function WeaponCompare({
             <h2 className="text-sm sm:text-base font-bold text-white font-heading">
               Comparing {compareList.length} Weapon{compareList.length === 1 ? '' : 's'}
             </h2>
-            <span className="text-[10px] sm:text-xs text-slate-400 font-mono">
-              Green badges highlight winning stats
-            </span>
           </div>
         </div>
 

@@ -224,13 +224,6 @@ export default function WeaponFinder({
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const popularPerks = filtersMetadata?.popularPerks || [
-    'Incandescent', 'Voltshot', 'Kinetic Tremors', 'Bait and Switch',
-    'Destabilizing Rounds', 'Precision Instrument', 'Reconstruction', 'Rewind Rounds',
-    'Heal Clip', 'Firefly', 'Explosive Payload', 'Demolitionist',
-    'Frenzy', 'Target Lock', 'Hatchling', 'Headstone'
-  ];
-
   /**
    * Perk suggestions come from the perk catalogue, not from the weapon filter
    * metadata. perkColumns only exists in the server-generated filters.json --
@@ -332,7 +325,7 @@ export default function WeaponFinder({
               <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search name, type, archetype or source — pick to add a filter"
+                placeholder="Search name, type, archetype or source..."
                 value={search}
                 onChange={(e) => { 
                   setSearch(e.target.value); 
@@ -466,7 +459,7 @@ export default function WeaponFinder({
                 <Sparkles className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-amber-400" />
                 <input
                   type="text"
-                  placeholder="Search perks — pick to add a filter"
+                  placeholder="Search perks..."
                   value={perkSearchInput}
                   onChange={(e) => {
                     setPerkSearchInput(e.target.value);
@@ -586,43 +579,6 @@ export default function WeaponFinder({
               </button>
             </div>
           )}
-
-          {/* Quick Popular Meta Perks Pills (Tap to inspect & filter) */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
-            <span className="text-xs text-slate-500 whitespace-nowrap mr-1 font-mono flex items-center gap-1">
-              <span>Popular:</span>
-            </span>
-            {popularPerks.map((p) => {
-              const isSelected = selectedPerks.includes(p);
-              return (
-                <div
-                  key={p}
-                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all border ${
-                    isSelected
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 shadow-sm shadow-amber-500/20 font-bold'
-                      : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 hover:text-white border-slate-700/60'
-                  }`}
-                >
-                  <LongPressable
-                    onClick={() => onOpenInfo?.({ name: p, type: 'perk' })}
-                    onLongPress={() => onOpenInfo?.({ name: p, type: 'perk' })}
-                    className="cursor-pointer"
-                  >
-                    <span>{p}</span>
-                  </LongPressable>
-                  {isSelected && (
-                    <button
-                      onClick={() => removePerk(p)}
-                      className="hover:text-rose-400 p-0.5 rounded"
-                      title="Remove filter"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
 
         </div>
       </div>
@@ -785,9 +741,6 @@ export default function WeaponFinder({
         <div className="p-12 text-center bg-[#121722] border border-[#20293a] rounded-xl">
           <Crosshair className="w-12 h-12 text-slate-600 mx-auto mb-3" />
           <h3 className="text-lg font-bold text-slate-300 font-heading">No weapons matched your filters</h3>
-          <p className="text-sm text-slate-500 max-w-md mx-auto mt-1">
-            Try broadening your perk or source search or switching perk match mode from AND to OR.
-          </p>
           <button
             onClick={clearAllFilters}
             className="mt-4 px-4 py-2 bg-amber-500/20 border border-amber-500/40 text-amber-300 rounded-lg text-sm hover:bg-amber-500/30"
@@ -893,7 +846,7 @@ export default function WeaponFinder({
                         });
                       }}
                       className={`text-[11px] flex items-center gap-1.5 px-2 py-1 rounded border truncate w-full ${sourceBadge.bg} ${sourceBadge.text} ${sourceBadge.border}`}
-                      title={`${w.sourceString} (Hold for info)`}
+                      title={w.sourceString}
                     >
                       <span className="flex-shrink-0">{sourceBadge.icon}</span>
                       <span className="truncate font-medium">{w.sourceString}</span>
