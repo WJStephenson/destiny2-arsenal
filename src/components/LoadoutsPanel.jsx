@@ -32,6 +32,78 @@ function groupPlugs(plugs) {
   return groups;
 }
 
+/** The stats a plug moves, as the game writes them: "+10 Melee". */
+function formatStats(stats) {
+  return (stats || []).map(stat => `${stat.value > 0 ? '+' : ''}${stat.value} ${stat.name}`);
+}
+
+/**
+ * What a loadout's Fragments add up to.
+ *
+ * Fragments pay for themselves in stats, and the total is the thing a player
+ * weighs one loadout against another by -- reading it off five separate
+ * tooltips is not the same as seeing it.
+ */
+function StatTotals({ plugs }) {
+  const totals = new Map();
+  (plugs || []).forEach(plug => {
+    (plug.stats || []).forEach(stat => {
+      totals.set(stat.name, (totals.get(stat.name) || 0) + stat.value);
+    });
+  });
+
+  const entries = [...totals.entries()].filter(([, value]) => value !== 0);
+  if (!entries.length) return null;
+
+  return (
+    <div className="flex items-start gap-2">
+      <span className="text-[9px] font-mono uppercase tracking-wider text-slate-500 w-16 flex-shrink-0 pt-0.5">
+        Stats
+      </span>
+      <div className="flex flex-wrap items-center gap-1">
+        {entries.map(([name, value]) => (
+          <span
+            key={name}
+            className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${
+              value > 0
+                ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            }`}
+          >
+            {value > 0 ? '+' : ''}{value} {name}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Resolve a list of plug hashes to what they are and what they do.
+ *
+ * Both kinds of card need this -- a game loadout stores bare hashes, and a
+ * saved one stores only enough to redraw itself offline -- and the definitions
+ * are cached, so asking twice costs nothing after the first card.
+ */
+function usePlugDetails(hashes) {
+  const [plugs, setPlugs] = useState(null);
+  const key = (hashes || []).filter(Boolean).join(',');
+
+  useEffect(() => {
+    if (!key) {
+      setPlugs([]);
+      return undefined;
+    }
+    let cancelled = false;
+    describePlugs(key.split(',')).then(res => {
+      if (!cancelled) setPlugs(res);
+    });
+    return () => { cancelled = true; };
+  }, [key]);
+
+  return plugs;
+}
+
 function PlugRow({ label, plugs, onOpenInfo, size = 'w-8 h-8' }) {
   if (!plugs?.length) return null;
 
@@ -45,7 +117,7 @@ function PlugRow({ label, plugs, onOpenInfo, size = 'w-8 h-8' }) {
           <button
             key={plug.hash}
             onClick={() => onOpenInfo?.({ ...plug, type: 'perk' })}
-            title={plug.name}
+            title={[plug.name, ...formatStats(plug.stats)].join(' • ')}
             className={`${size} rounded-lg bg-black/60 border border-slate-700 hover:border-amber-500/60 overflow-hidden flex items-center justify-center transition-colors`}
           >
             {plug.icon ? (
@@ -62,23 +134,7 @@ function PlugRow({ label, plugs, onOpenInfo, size = 'w-8 h-8' }) {
 
 /** One of the game's own loadout slots. */
 function GameLoadoutCard({ loadout, onEquip, actionLoading, onOpenInfo }) {
-  const [plugs, setPlugs] = useState(null);
-
-  const plugKey = (loadout.subclassPlugHashes || []).join(',');
-
-  useEffect(() => {
-    let cancelled = false;
-    const hashes = plugKey ? plugKey.split(',') : [];
-    if (!hashes.length) {
-      setPlugs([]);
-      return undefined;
-    }
-    describePlugs(hashes).then(res => {
-      if (!cancelled) setPlugs(res);
-    });
-    return () => { cancelled = true; };
-  }, [plugKey]);
-
+  const plugs = usePlugDetails(loadout.subclassPlugHashes);
   const groups = groupPlugs(plugs);
   const damageInfo = getDamageInfo(loadout.subclass?.damageType);
   const isEquipping = actionLoading === `loadout_${loadout.index}`;
@@ -153,6 +209,7 @@ function GameLoadoutCard({ loadout, onEquip, actionLoading, onOpenInfo }) {
             <PlugRow label="Abilities" plugs={groups.ability} onOpenInfo={onOpenInfo} />
             <PlugRow label="Aspects" plugs={groups.aspect} onOpenInfo={onOpenInfo} />
             <PlugRow label="Fragments" plugs={groups.fragment} onOpenInfo={onOpenInfo} />
+            <StatTotals plugs={groups.fragment} />
           </div>
         )}
       </div>
@@ -176,7 +233,17 @@ function CustomLoadoutCard({ loadout, onApply, onRemove, onRename, applying, dis
 
   // A saved loadout stores a plug by the socket it belongs in, so its hash is
   // under `plugHash` rather than `hash` -- the row keys off the plug itself.
-  const groups = groupPlugs((loadout.subclass?.plugs || []).map(p => ({ ...p, hash: p.plugHash })));
+  const savedPlugs = (loadout.subclass?.plugs || []).map(p => ({ ...p, hash: p.plugHash }));
+
+  // The snapshot carries a name and an icon, which is enough to draw the card
+  // without a network. What each plug *does* is not stored -- keeping a copy
+  // would go stale the first time Bungie tunes a Fragment -- so it is resolved
+  // from the manifest and merged over the snapshot when it arrives.
+  const resolved = usePlugDetails(savedPlugs.map(p => p.plugHash));
+  const byHash = new Map((resolved || []).map(plug => [String(plug.hash), plug]));
+  const plugs = savedPlugs.map(plug => ({ ...plug, ...(byHash.get(String(plug.plugHash)) || {}) }));
+
+  const groups = groupPlugs(plugs);
   const damageInfo = getDamageInfo(loadout.subclass?.damageType);
 
   const commitRename = () => {
@@ -277,6 +344,7 @@ function CustomLoadoutCard({ loadout, onApply, onRemove, onRename, applying, dis
             <PlugRow label="Abilities" plugs={groups.ability} onOpenInfo={onOpenInfo} />
             <PlugRow label="Aspects" plugs={groups.aspect} onOpenInfo={onOpenInfo} />
             <PlugRow label="Fragments" plugs={groups.fragment} onOpenInfo={onOpenInfo} />
+            <StatTotals plugs={groups.fragment} />
           </div>
         )}
       </div>
