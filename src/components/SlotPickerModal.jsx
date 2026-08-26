@@ -415,7 +415,7 @@ export default function SlotPickerModal({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2.5 sm:gap-3.5">
+            <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-1.5 sm:gap-3">
               {matchingItems.map(({ item, sourceLabel, fromVault, equippedElsewhere }) => {
                 const tierInfo = getTierInfo(item.tierTypeName);
                 const isTransferring = actionLoading === item.itemInstanceId;
@@ -454,15 +454,13 @@ export default function SlotPickerModal({
                         </div>
                       )}
 
-                      {/* Where it lives, bottom left */}
-                      <span className={`absolute bottom-1.5 left-1.5 max-w-[60%] truncate px-1.5 py-0.5 rounded-md text-[8px] font-mono font-bold leading-none border z-10 ${
-                        fromVault
-                          ? 'bg-black/90 text-slate-200 border-white/15'
-                          : 'bg-indigo-950/90 text-indigo-200 border-indigo-400/30'
-                      }`}>
-                        {equippedElsewhere && <Lock className="w-2 h-2 inline-block mr-0.5 -mt-0.5" />}
-                        {sourceLabel}
-                      </span>
+                      {/* Locked, bottom left. Where it lives is written under
+                          the tile, which has room for the word at any size. */}
+                      {equippedElsewhere && (
+                        <span className="absolute bottom-1.5 left-1.5 p-1 rounded-md bg-black/90 border border-white/15 z-10">
+                          <Lock className="w-2.5 h-2.5 text-slate-300" />
+                        </span>
+                      )}
 
                       {/* Power, bottom right */}
                       {item.power && (
@@ -487,15 +485,16 @@ export default function SlotPickerModal({
 
                     <div className="w-full mt-1 px-0.5 min-w-0 text-center">
                       <span
-                        className="block text-[11px] font-bold text-slate-200 truncate group-hover:text-amber-300 font-heading"
+                        className="block text-[10px] sm:text-[11px] font-bold text-slate-200 truncate group-hover:text-amber-300 font-heading"
                         title={item.name}
                       >
                         {item.name}
                       </span>
-                      <span className="block text-[9px] text-slate-400 font-mono truncate">
-                        {isArmorSlot && item.armorStats?.total
-                          ? `Stat: ${item.armorStats.total}`
-                          : (item.weaponType || item.itemTypeDisplayName || '')}
+                      <span className={`block text-[9px] font-mono truncate ${
+                        fromVault ? 'text-slate-400' : 'text-indigo-300'
+                      }`}>
+                        {sourceLabel}
+                        {isArmorSlot && item.armorStats?.total ? ` · ${item.armorStats.total}` : ''}
                       </span>
                     </div>
                   </div>

@@ -16,18 +16,12 @@ export default function ArmorModal({
   if (!armor) return null;
   const tierInfo = getTierInfo(armor.tierTypeName);
 
-  // Bar colours per stat; the stat list itself comes from the shared model so
-  // this modal and the optimizer can never drift apart.
-  const STAT_COLOURS = {
-    weapons: { text: 'text-sky-400', bar: 'bg-sky-400' },
-    health: { text: 'text-emerald-400', bar: 'bg-emerald-400' },
-    classAbility: { text: 'text-amber-400', bar: 'bg-amber-400' },
-    grenade: { text: 'text-indigo-400', bar: 'bg-indigo-400' },
-    superAbility: { text: 'text-purple-400', bar: 'bg-purple-400' },
-    melee: { text: 'text-rose-400', bar: 'bg-rose-400' }
-  };
-
-  const stats = normaliseStats(armor.armorStats || armor.statsList || armor.stats);
+  // Armour definitions no longer carry stats -- the numbers live on the
+  // instance, and a definition's stat block reads as six zeroes -- so take the
+  // first source that actually has any rather than the first that exists.
+  const stats = [armor.armorStats, armor.statsList, armor.stats]
+    .map(normaliseStats)
+    .find(s => s.total > 0) || normaliseStats(null);
   const statTotal = stats.total;
 
   // Scale the bars against this piece's own best roll rather than a fixed
@@ -116,7 +110,7 @@ export default function ArmorModal({
           {/* Flavor Text */}
           {armor.flavorText && (
             <p className="text-xs sm:text-sm italic text-slate-400 border-l-2 border-amber-500/60 pl-3 leading-relaxed">
-              "{armor.flavorText}"
+              {armor.flavorText}
             </p>
           )}
 
@@ -188,17 +182,16 @@ export default function ArmorModal({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-[#0b0e14] border border-[#20293a] rounded-xl p-3.5">
               {STAT_META.map((st) => {
                 const val = stats[st.key] || 0;
-                const colours = STAT_COLOURS[st.key];
                 const pct = Math.min(100, Math.max(0, (val / barCeiling) * 100));
                 return (
                   <div key={st.key} className="space-y-1 text-xs">
                     <div className="flex justify-between font-mono">
-                      <span className={`font-bold ${colours.text}`}>{st.short} • {st.label}</span>
+                      <span className={`font-bold ${st.text}`}>{st.short} • {st.label}</span>
                       <span className="text-white font-bold tabular-nums">{val}</span>
                     </div>
                     <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
                       <div
-                        className={`h-full rounded-full ${colours.bar}`}
+                        className={`h-full rounded-full ${st.bar}`}
                         style={{ width: `${pct}%` }}
                       />
                     </div>

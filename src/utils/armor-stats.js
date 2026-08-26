@@ -34,13 +34,17 @@ export const STAT_KEYS = [
   'melee'
 ];
 
+/**
+ * The six stats, with the colours every screen draws them in. The colours live
+ * here so a stat reads the same wherever it is shown.
+ */
 export const STAT_META = [
-  { key: 'weapons', label: 'Weapons', short: 'WEAP', legacy: 'Mobility' },
-  { key: 'health', label: 'Health', short: 'HLTH', legacy: 'Resilience' },
-  { key: 'classAbility', label: 'Class', short: 'CLAS', legacy: 'Recovery' },
-  { key: 'grenade', label: 'Grenade', short: 'GREN', legacy: 'Discipline' },
-  { key: 'superAbility', label: 'Super', short: 'SUPR', legacy: 'Intellect' },
-  { key: 'melee', label: 'Melee', short: 'MELE', legacy: 'Strength' }
+  { key: 'weapons', label: 'Weapons', short: 'WEAP', legacy: 'Mobility', text: 'text-sky-400', bar: 'bg-sky-400' },
+  { key: 'health', label: 'Health', short: 'HLTH', legacy: 'Resilience', text: 'text-emerald-400', bar: 'bg-emerald-400' },
+  { key: 'classAbility', label: 'Class', short: 'CLAS', legacy: 'Recovery', text: 'text-amber-400', bar: 'bg-amber-400' },
+  { key: 'grenade', label: 'Grenade', short: 'GREN', legacy: 'Discipline', text: 'text-indigo-400', bar: 'bg-indigo-400' },
+  { key: 'superAbility', label: 'Super', short: 'SUPR', legacy: 'Intellect', text: 'text-purple-400', bar: 'bg-purple-400' },
+  { key: 'melee', label: 'Melee', short: 'MELE', legacy: 'Strength', text: 'text-rose-400', bar: 'bg-rose-400' }
 ];
 
 export const STAT_COUNT = STAT_KEYS.length;
