@@ -911,7 +911,7 @@ export default function WeaponFinder({
                                   onClick={(e) => { e.stopPropagation(); onOpenInfo?.(info); }}
                                   onLongPress={(e) => { e.stopPropagation(); removePerk(p.name); }}
                                   title={`${p.name}${p.isEnhanced ? ' (Enhanced)' : ''} — ${col.type} — hold to drop this filter`}
-                                  className="relative justify-center w-7 h-7 rounded-full border border-amber-400 ring-1 ring-amber-400 bg-amber-500/20 transition-all hover:scale-110 active:scale-95"
+                                  className="relative inline-flex items-center justify-center w-7 h-7 rounded-full border border-amber-400 ring-1 ring-amber-400 bg-amber-500/20 transition-all hover:scale-110 active:scale-95"
                                 >
                                   <PerkIcon perk={p} className="w-5 h-5" />
                                 </LongPressable>

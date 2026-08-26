@@ -380,7 +380,7 @@ export default function WeaponModal({
                             title={p.isEnhanced ? `${p.name} (Enhanced)` : p.name}
                             onClick={() => onOpenInfo?.(info)}
                             onLongPress={() => onOpenInfo?.(info)}
-                            className={`relative justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-slate-900/90 border transition-all hover:scale-105 active:scale-95 ${
+                            className={`relative inline-flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-slate-900/90 border transition-all hover:scale-105 active:scale-95 ${
                               p.isEnhanced
                                 ? 'border-amber-500/60 hover:border-amber-400'
                                 : 'border-slate-700 hover:border-amber-400'
