@@ -151,6 +151,25 @@ export default function GuardianManager({
   });
 
   /**
+   * Arriving at a tab should show the top of it.
+   *
+   * Swiping from the bottom of a long tab into a short one otherwise lands
+   * somewhere past its end, on empty space. This only ever pulls the page up to
+   * the panel -- someone already reading the top is left where they are.
+   */
+  const panelRef = useRef(null);
+
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    // Clear of the sticky header, which would otherwise cover the first card.
+    const top = panel.getBoundingClientRect().top + window.scrollY - 88;
+    if (window.scrollY > top) {
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }
+  }, [activeSubTab]);
+
+  /**
    * The profile as it stands right now, for the action handlers.
    *
    * A handler held by a child -- the optimizer runs a whole build's worth of
@@ -1608,6 +1627,7 @@ export default function GuardianManager({
 
       {/* The tab panels, sliding in from the side the thumb came from. */}
       <div
+        ref={panelRef}
         key={activeSubTab}
         className={swipeDirection === 'left' ? 'animate-slideInLeft' : swipeDirection === 'right' ? 'animate-slideInRight' : ''}
       >

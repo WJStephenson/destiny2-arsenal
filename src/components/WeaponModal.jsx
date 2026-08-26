@@ -19,6 +19,7 @@ import { getDamageInfo, getTierInfo, getSourceCategoryBadge, getAcquisitionHint,
 import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
 import ItemTransferControls from './ItemTransferControls';
+import useBodyScrollLock from '../utils/useBodyScrollLock';
 
 /**
  * Column headers have one line at roughly seven characters before they
@@ -44,6 +45,9 @@ export default function WeaponModal({
   onProfileUpdate,
   onShowToast
 }) {
+  // The page behind stays put while this is open.
+  useBodyScrollLock();
+
   if (!weapon) return null;
 
   const tierInfo = getTierInfo(weapon.tierTypeName);
@@ -76,8 +80,15 @@ export default function WeaponModal({
   const barStats = allStats.filter(s => !discreteStatNames.includes(s.name));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm overflow-y-auto">
-      <div className="relative w-full max-w-4xl bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[90vh] flex flex-col animate-fadeIn">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm overflow-hidden overscroll-none"
+      data-no-swipe
+      onClick={onClose}
+    >
+      <div
+        className="sheet-panel relative w-full max-w-4xl bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-fadeIn"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Mobile Pull/Drag Handle */}
         <div className="sm:hidden w-12 h-1.5 bg-slate-600/70 rounded-full mx-auto my-2.5 flex-shrink-0 z-30" />
@@ -181,7 +192,7 @@ export default function WeaponModal({
         </div>
 
         {/* Modal Scrollable Body */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-6 flex-1">
+        <div className="sheet-scroll p-4 sm:p-6 space-y-6 flex-1">
           
           {/* Live Inventory & Transfer Controls (If player owns instance(s) of this weapon) */}
           {profileData && (
@@ -470,7 +481,7 @@ export default function WeaponModal({
         </div>
 
         {/* Modal Footer Controls */}
-        <div className="p-4 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
+        <div className="sheet-safe-bottom p-4 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
           <div className="flex items-center gap-2">
             <button
               onClick={handleSaveToWishlist}

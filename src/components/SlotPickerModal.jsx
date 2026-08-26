@@ -18,6 +18,7 @@ import {
 import { getTierInfo } from '../utils/destiny-helpers';
 import { equipSlotKey, WEAPON_SLOT_KEYS, ARMOR_SLOT_KEYS } from '../utils/destiny-buckets';
 import LongPressable from './LongPressable';
+import useBodyScrollLock from '../utils/useBodyScrollLock';
 
 /** A character can hold nine items per slot, on top of the one it is wearing. */
 const SLOT_CAPACITY = 9;
@@ -105,6 +106,9 @@ export default function SlotPickerModal({
   actionLoading,
   onInspect
 }) {
+  // The page behind stays put while this is open.
+  useBodyScrollLock();
+
   const [search, setSearch] = useState('');
   const [tierFilter, setTierFilter] = useState('all'); // 'all' | 'Exotic' | 'Legendary' | 'Rare'
   const [damageFilter, setDamageFilter] = useState('all'); // 'all' | 'Solar' | 'Arc' | ...
@@ -270,13 +274,14 @@ export default function SlotPickerModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden animate-fadeIn"
+      className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-hidden overscroll-none animate-fadeIn"
+      data-no-swipe
       onClick={onClose}
     >
       {/* The overlay never scrolls; the panel is bounded and scrolls inside, so
           no part of it can end up out of reach on a short screen. */}
       <div
-        className="relative w-full max-w-5xl h-[92dvh] sm:h-[40rem] sm:max-h-[88dvh] bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="sheet-panel relative w-full max-w-5xl h-[calc(100dvh-var(--sat)-0.5rem)] sm:h-[40rem] bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sm:hidden w-12 h-1.5 bg-slate-600/70 rounded-full mx-auto my-2.5 flex-shrink-0" />
@@ -392,7 +397,7 @@ export default function SlotPickerModal({
         </div>
 
         {/* Grid */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-5">
+        <div className="sheet-scroll flex-1 p-3 sm:p-5">
           {isFull && (
             <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium">
               Your {slotGroup.title.toLowerCase()} inventory on {activeChar?.classType} is full
@@ -518,7 +523,7 @@ export default function SlotPickerModal({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-3 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="sheet-safe-bottom px-4 py-3 bg-[#0b0e14] border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
           <span className={`text-[11px] font-mono truncate ${note ? 'text-amber-300' : 'text-slate-400'}`}>
             {note || 'Tap to bring over • Hold to inspect'}
           </span>

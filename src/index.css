@@ -16,6 +16,9 @@
 
   body {
     font-family: 'Inter', sans-serif;
+    /* No pull-to-refresh and no whole-document rubber band: this is an app,
+       and a page that bounces under a sheet reads as broken. */
+    overscroll-behavior-y: contain;
     padding-top: var(--sat);
     padding-left: var(--sal);
     padding-right: var(--sar);
@@ -95,6 +98,56 @@
   .animate-slideInRight {
     animation: fadeIn 0.15s ease-out forwards;
   }
+}
+
+/*
+ * Sheets and dialogs.
+ *
+ * Every overlay in the app is the same shape -- a bottom sheet on a phone, a
+ * centred dialog on a desktop -- so the rules that keep one inside the screen
+ * live here rather than being spelled out, differently, on each of them.
+ */
+
+/*
+ * The panel itself. `dvh` is the viewport as it actually is: `vh` on mobile
+ * Safari measures the screen with the browser chrome hidden, which makes a
+ * "92vh" sheet taller than what the reader can see and pushes its last row
+ * under the address bar. The top inset keeps a full-height sheet clear of the
+ * notch.
+ */
+.sheet-panel {
+  /* --sat / --sab are the insets, defined once in :root. Every rule that has
+     to keep clear of the notch or the home indicator reads them from there. */
+  max-height: calc(100dvh - var(--sat) - 0.5rem);
+  overscroll-behavior: contain;
+}
+
+@media (min-width: 640px) {
+  .sheet-panel {
+    max-height: min(90dvh, 56rem);
+  }
+}
+
+/*
+ * The one part of a sheet that scrolls. `overscroll-behavior: contain` stops a
+ * flick that reaches the end from carrying on into the page behind, and
+ * `min-height: 0` lets a flex child actually shrink to its container instead of
+ * growing past it and taking its own scrollbar with it.
+ */
+.sheet-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  min-height: 0;
+}
+
+/*
+ * The bottom edge of a sheet, clear of the home indicator. A sheet sits above
+ * the app's own bottom navigation, so this is the only thing between its last
+ * control and the edge of the screen.
+ */
+.sheet-safe-bottom {
+  padding-bottom: max(1rem, calc(0.75rem + var(--sab)));
 }
 
 /* Custom modern scrollbar */

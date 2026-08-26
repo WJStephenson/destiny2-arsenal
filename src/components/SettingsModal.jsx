@@ -15,6 +15,7 @@ import {
   Info
 } from 'lucide-react';
 import { getStoredSettings, saveStoredSettings } from '../utils/auth-storage';
+import useBodyScrollLock from '../utils/useBodyScrollLock';
 
 export default function SettingsModal({ 
   onClose, 
@@ -22,6 +23,9 @@ export default function SettingsModal({
   onTriggerSync, 
   isSyncing 
 }) {
+  // The page behind stays put while this is open.
+  useBodyScrollLock();
+
   const initial = getStoredSettings();
   const [apiKey, setApiKey] = useState(initial.apiKey || '');
   const [clientId, setClientId] = useState(initial.clientId || '');
@@ -65,10 +69,10 @@ export default function SettingsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-fadeIn overflow-hidden overscroll-none" data-no-swipe>
       
       {/* Mobile Bottom Sheet / Desktop Centered Dialog */}
-      <div className="relative w-full max-w-xl bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[90vh] flex flex-col">
+      <div className="sheet-panel relative w-full max-w-xl bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col">
         
         {/* Mobile Pull Handle */}
         <div className="sm:hidden w-12 h-1.5 bg-slate-600/70 rounded-full mx-auto my-2.5 flex-shrink-0" />
@@ -94,7 +98,7 @@ export default function SettingsModal({
         </div>
 
         {/* Body */}
-        <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+        <div className="sheet-scroll sheet-safe-bottom p-4 sm:p-6 space-y-5 flex-1">
           
           {/* Bungie OAuth 2.0 Credentials (Persistent!) */}
           <div className="space-y-4 p-4 rounded-xl bg-[#0b0e14] border border-[#20293a]">

@@ -4,6 +4,7 @@ import { getTierInfo } from '../utils/destiny-helpers';
 import { STAT_META, normaliseStats } from '../utils/armor-stats';
 import LongPressable from './LongPressable';
 import ItemTransferControls from './ItemTransferControls';
+import useBodyScrollLock from '../utils/useBodyScrollLock';
 
 export default function ArmorModal({ 
   armor, 
@@ -13,6 +14,9 @@ export default function ArmorModal({
   onProfileUpdate,
   onShowToast
 }) {
+  // The page behind stays put while this is open.
+  useBodyScrollLock();
+
   if (!armor) return null;
   const tierInfo = getTierInfo(armor.tierTypeName);
 
@@ -30,10 +34,17 @@ export default function ArmorModal({
   const barCeiling = Math.max(10, ...STAT_META.map(st => stats[st.key] || 0));
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-fadeIn">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/85 backdrop-blur-sm animate-fadeIn overflow-hidden overscroll-none"
+      data-no-swipe
+      onClick={onClose}
+    >
       
       {/* Mobile Bottom Sheet / Desktop Centered Card */}
-      <div className="relative w-full max-w-2xl bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] sm:max-h-[90vh] flex flex-col">
+      <div
+        className="sheet-panel relative w-full max-w-2xl bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
         
         {/* Mobile Pull/Drag Handle */}
         <div className="sm:hidden w-12 h-1.5 bg-slate-600/70 rounded-full mx-auto my-2.5 flex-shrink-0" />
@@ -95,7 +106,7 @@ export default function ArmorModal({
         </div>
 
         {/* Scrollable Body */}
-        <div className="p-4 sm:p-6 space-y-5 overflow-y-auto flex-1 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+        <div className="sheet-scroll sheet-safe-bottom p-4 sm:p-6 space-y-5 flex-1">
           
           {/* Live Inventory & Transfer Controls (If player owns instance(s) of this armor) */}
           {profileData && (

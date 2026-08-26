@@ -16,6 +16,7 @@ import {
 import { STAT_DESCRIPTIONS, ELEMENT_DESCRIPTIONS } from '../utils/info-catalog';
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
 import { getPerkByName, getPerkByHash } from '../utils/client-manifest';
+import useBodyScrollLock from '../utils/useBodyScrollLock';
 
 export default function InfoDrawer({ 
   item, 
@@ -24,6 +25,9 @@ export default function InfoDrawer({
   onFilterBySource,
   onFilterByElement 
 }) {
+  // The page behind stays put while this is open.
+  useBodyScrollLock();
+
   if (!item) return null;
 
   // Resolve definition from client manifest if perk definition is incomplete
@@ -67,13 +71,13 @@ export default function InfoDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn">
+    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/80 backdrop-blur-sm animate-fadeIn overflow-hidden overscroll-none" data-no-swipe>
       
       {/* Background click to dismiss */}
       <div className="absolute inset-0" onClick={onClose} />
 
       {/* Modal / Bottom Sheet Container */}
-      <div className="relative w-full sm:max-w-lg bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col z-10 animate-slideUp">
+      <div className="sheet-panel relative w-full sm:max-w-lg bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden flex flex-col z-10 animate-slideUp">
         
         {/* Mobile Drag Indicator Handle */}
         <div className="w-12 h-1.5 bg-slate-700 rounded-full mx-auto mt-3 mb-1 sm:hidden" />
@@ -119,7 +123,7 @@ export default function InfoDrawer({
         </div>
 
         {/* Body Content */}
-        <div className="p-5 sm:p-6 space-y-4 overflow-y-auto flex-1">
+        <div className="sheet-scroll p-5 sm:p-6 space-y-4 flex-1">
           
           {/* Main Description */}
           {description ? (
@@ -177,7 +181,7 @@ export default function InfoDrawer({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 bg-slate-900 border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
+        <div className="sheet-safe-bottom p-4 bg-slate-900 border-t border-[#20293a] flex items-center justify-between gap-3 flex-shrink-0">
           {(item.type === 'perk' || perkDef) && onFilterByPerk && (
             <button
               onClick={() => {

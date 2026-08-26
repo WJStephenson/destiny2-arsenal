@@ -3,6 +3,7 @@ import { Sparkles, RefreshCw, Check, X, Search, Zap, Shield, Lock } from 'lucide
 import { getDamageInfo } from '../utils/destiny-helpers';
 import { resolveSocketOptions, describePlugs, ROLE_LABELS } from '../utils/subclass';
 import LongPressable from './LongPressable';
+import useBodyScrollLock from '../utils/useBodyScrollLock';
 
 /**
  * The Class screen: the Guardian's subclass and everything fitted to it.
@@ -141,6 +142,9 @@ function SocketGroup({ title, sockets, size, onPick, actionLoading, pendingSocke
 
 /** The list of plugs one socket will take. */
 function PlugPickerSheet({ socket, onClose, onSelect, applying }) {
+  // The Class screen behind stays put while the picker is open.
+  useBodyScrollLock();
+
   const [options, setOptions] = useState(null);
   const [search, setSearch] = useState('');
 
@@ -161,12 +165,15 @@ function PlugPickerSheet({ socket, onClose, onSelect, applying }) {
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center overflow-hidden overscroll-none"
+      data-no-swipe
+    >
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full sm:max-w-2xl max-h-[85vh] sm:max-h-[80vh] bg-[#121722] border border-[#20293a] rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col animate-slideUp sm:animate-fadeIn">
+      <div className="sheet-panel relative w-full sm:max-w-2xl bg-[#121722] border border-[#20293a] rounded-t-2xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-slideUp sm:animate-fadeIn">
 
-        <div className="p-4 border-b border-[#20293a] space-y-3">
+        <div className="p-4 border-b border-[#20293a] space-y-3 flex-shrink-0">
           <div className="flex items-center justify-between gap-3">
             <div>
               <h3 className="font-heading font-bold text-white text-lg">Choose {roleLabel}</h3>
@@ -198,7 +205,7 @@ function PlugPickerSheet({ socket, onClose, onSelect, applying }) {
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="sheet-scroll sheet-safe-bottom flex-1 p-3 space-y-2">
           {options === null && (
             <div className="py-10 flex items-center justify-center gap-2 text-slate-400 text-sm">
               <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />

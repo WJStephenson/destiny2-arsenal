@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Download, X, Share, PlusSquare, Sparkles } from 'lucide-react';
+import useBodyScrollLock from '../utils/useBodyScrollLock';
 
 export default function PWAInstallPrompt() {
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showPrompt, setShowPrompt] = useState(false);
   const [isIOS, setIsIOS] = useState(false);
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
+
+  // Only while the instructions sheet is up -- the banner itself is not an
+  // overlay and must not hold the page.
+  useBodyScrollLock(showIOSInstructions);
 
   useEffect(() => {
     // Check if already installed
@@ -99,8 +104,8 @@ export default function PWAInstallPrompt() {
 
       {/* iOS Safari Instructions Sheet */}
       {showIOSInstructions && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-          <div className="relative w-full max-w-sm bg-[#121722] border border-[#28354d] rounded-2xl p-6 text-center space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/80 backdrop-blur-sm overflow-hidden overscroll-none" data-no-swipe>
+          <div className="sheet-panel sheet-scroll sheet-safe-bottom relative w-full max-w-sm bg-[#121722] border border-[#28354d] rounded-2xl p-6 text-center space-y-4 shadow-2xl">
             <div className="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center mx-auto">
               <PlusSquare className="w-6 h-6 text-amber-400" />
             </div>
