@@ -13,9 +13,9 @@ export default function MobileBottomNav({
   authSession 
 }) {
   const tabs = [
+    { id: 'guardian', label: 'Guardian', icon: Zap, isLive: authSession?.authenticated },
     { id: 'weapons', label: 'Weapons', icon: Crosshair },
     { id: 'armor', label: 'Armor', icon: Shield },
-    { id: 'guardian', label: 'Guardian', icon: Zap, isLive: authSession?.authenticated },
     { id: 'wishlist', label: 'Saved', icon: Bookmark, count: wishlistCount }
   ];
 

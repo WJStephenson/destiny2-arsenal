@@ -67,6 +67,18 @@ export default function Header({
         <nav className="hidden md:flex items-center gap-1 bg-[#121722] p-1 rounded-xl border border-[#20293a]">
           
           <button
+            onClick={() => setActiveTab('guardian')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-heading tracking-wide transition-all ${
+              activeTab === 'guardian'
+                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 text-amber-400" />
+            <span>Guardian</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('weapons')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-heading tracking-wide transition-all ${
               activeTab === 'weapons'
@@ -88,18 +100,6 @@ export default function Header({
           >
             <Shield className="w-3.5 h-3.5" />
             <span>Armor</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('guardian')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold font-heading tracking-wide transition-all ${
-              activeTab === 'guardian'
-                ? 'bg-amber-500 text-black shadow-md shadow-amber-500/20'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
-            }`}
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-400" />
-            <span>Guardian</span>
           </button>
 
           <button

@@ -22,7 +22,8 @@ import {
 } from './utils/auth-storage';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('weapons');
+  // The Guardian is what the app is for; the armoury is where you go next.
+  const [activeTab, setActiveTab] = useState('guardian');
   const [manifestStatus, setManifestStatus] = useState(null);
   const [filtersMetadata, setFiltersMetadata] = useState(null);
   const [isSyncing, setIsSyncing] = useState(false);

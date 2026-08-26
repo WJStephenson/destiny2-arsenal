@@ -18,7 +18,15 @@ import {
   Plus 
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
-import { ITEM_STATE_MASTERWORK, STAT_META, normaliseStats } from '../utils/armor-stats';
+import {
+  ITEM_STATE_MASTERWORK,
+  STAT_KEYS,
+  STAT_META,
+  STAT_MAX,
+  OVERCHARGE_THRESHOLD,
+  normaliseStats,
+  statTier
+} from '../utils/armor-stats';
 import { ensureApiKey, getStoredAuthSession, getValidAuthToken } from '../utils/auth-storage';
 import { getItemDefinition, batchResolveItemDefinitions } from '../utils/item-definition-cache';
 import { batchResolveSetDefinitions } from '../utils/set-definition-cache';
@@ -193,6 +201,11 @@ export default function GuardianManager({
     // Item definitions are read straight from Bungie on either route, so the
     // key has to be in place before anything is enriched.
     await ensureApiKey();
+    // And the bundled manifest has to be in memory, or every item is a cache
+    // miss and goes out to Bungie one hash at a time -- thousands of requests,
+    // rate limits, and a screen full of nameless tiles. It loads once and is
+    // shared, so this is a wait only on the very first profile read.
+    await initClientManifest();
     try {
       // 1. A local server, if one is running, fetches the profile with its own
       //    credentials. It hands back Bungie's own payload, so both routes end
@@ -1130,6 +1143,17 @@ export default function GuardianManager({
 
   const equippedWeapons = activeChar?.equipped?.filter(it => it.isWeapon) || [];
   const equippedArmor = activeChar?.equipped?.filter(it => it.isArmor) || [];
+
+  /**
+   * What this Guardian's armour adds up to -- the six totals the character
+   * screen shows in game. Every value comes off the live instances: armour
+   * definitions carry no stats any more, so a piece that has not been read from
+   * the profile contributes nothing rather than a wrong number.
+   */
+  const armorStatTotals = equippedArmor.reduce((totals, piece) => {
+    STAT_KEYS.forEach(key => { totals[key] += piece.armorStats?.[key] || 0; });
+    return totals;
+  }, Object.fromEntries(STAT_KEYS.map(key => [key, 0])));
   const inventoryItems = activeChar?.bag || [];
   const loadoutsList = activeChar?.loadouts || [];
 
@@ -1383,7 +1407,7 @@ export default function GuardianManager({
                         
                         {/* Weapon Thumbnail */}
                         <div 
-                          onClick={() => onSelectWeapon?.(item.baseItem || item)}
+                          onClick={() => onSelectWeapon?.(item)}
                           className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-sm"
                           title="Click for weapon details"
                         >
@@ -1408,7 +1432,7 @@ export default function GuardianManager({
                             )}
                           </div>
                           <h4 
-                            onClick={() => onSelectWeapon?.(item.baseItem || item)}
+                            onClick={() => onSelectWeapon?.(item)}
                             className="font-bold text-white text-base truncate hover:text-amber-300 cursor-pointer transition-colors font-heading"
                           >
                             {item.name}
@@ -1468,7 +1492,7 @@ export default function GuardianManager({
                             <LongPressable
                               key={bagItem.itemInstanceId}
                               onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
-                              onLongPress={() => onSelectWeapon?.(bagItem.baseItem || bagItem)}
+                              onLongPress={() => onSelectWeapon?.(bagItem)}
                               className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
                                 blocked
                                   ? 'opacity-40 cursor-not-allowed'
@@ -1560,10 +1584,39 @@ export default function GuardianManager({
               </button>
             </div>
 
-            <span className="text-[11px] font-mono text-slate-400 px-2">
-              {activeChar?.classType} Armour
-            </span>
           </div>
+
+          {/* The Guardian's armour stats, totalled from what it is wearing. */}
+          {armorView === 'slots' && (
+            <div className="bg-[#121722] border border-[#1e2638] rounded-2xl p-3 sm:p-4">
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5 sm:gap-4">
+                {STAT_META.map(st => {
+                  const value = armorStatTotals[st.key] || 0;
+                  return (
+                    <div key={st.key} className="min-w-0">
+                      <div className="flex items-baseline justify-between gap-1 font-mono">
+                        <span className={`text-[10px] font-bold ${st.text}`}>{st.short}</span>
+                        <span className="text-sm font-bold text-white tabular-nums">{value}</span>
+                      </div>
+                      <div className="mt-1 h-1.5 w-full bg-[#0b0e14] rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${st.bar}`}
+                          style={{ width: `${Math.min(100, (value / STAT_MAX) * 100)}%` }}
+                        />
+                      </div>
+                      <div className="mt-0.5 flex items-center justify-between font-mono text-[9px] text-slate-500">
+                        <span className="truncate">{st.label}</span>
+                        {/* Past 100 a stat is overcharged and still paying out. */}
+                        <span className={value >= OVERCHARGE_THRESHOLD ? 'text-amber-400 font-bold' : ''}>
+                          T{statTier(value)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* VIEW 1: 5 SLOTS */}
           {armorView === 'slots' && (
@@ -1615,7 +1668,7 @@ export default function GuardianManager({
                           
                           {/* Armor Thumbnail */}
                           <div 
-                            onClick={() => onSelectArmor?.(item.baseItem || item)}
+                            onClick={() => onSelectArmor?.(item)}
                             className="relative w-14 h-14 rounded-xl bg-black/60 border border-white/10 overflow-hidden flex-shrink-0 cursor-pointer group shadow-sm"
                             title="Click for armour details"
                           >
@@ -1638,12 +1691,11 @@ export default function GuardianManager({
                               {item.tierTypeName}
                             </span>
                             <h4 
-                              onClick={() => onSelectArmor?.(item.baseItem || item)}
+                              onClick={() => onSelectArmor?.(item)}
                               className="font-bold text-white text-base truncate hover:text-amber-300 cursor-pointer transition-colors font-heading"
                             >
                               {item.name}
                             </h4>
-                            <span className="text-xs text-slate-400 truncate block">{item.itemTypeDisplayName || 'Armour'}</span>
                           </div>
 
                         </div>
@@ -1703,7 +1755,7 @@ export default function GuardianManager({
                               <LongPressable
                                 key={bagItem.itemInstanceId}
                                 onClick={() => { if (!blocked) handleEquipItem(bagItem.itemInstanceId); }}
-                                onLongPress={() => onSelectArmor?.(bagItem.baseItem || bagItem)}
+                                onLongPress={() => onSelectArmor?.(bagItem)}
                                 className={`relative w-11 h-11 rounded-xl bg-black/80 border ${bTier.border || 'border-slate-700'} p-0.5 flex-shrink-0 transition-all shadow-sm flex items-center justify-center overflow-hidden ${
                                   blocked
                                     ? 'opacity-40 cursor-not-allowed'
@@ -1780,10 +1832,6 @@ export default function GuardianManager({
       {/* Sub-Tab 3: IN-GAME LOADOUTS */}
       {activeSubTab === 'loadouts' && (
         <div className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-200 uppercase tracking-wider font-heading">
-            {activeChar?.classType}'s Saved Loadouts
-          </h3>
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {loadoutsList.map((ld) => (
               <div

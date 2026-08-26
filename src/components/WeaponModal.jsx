@@ -278,7 +278,7 @@ export default function WeaponModal({
           {/* Flavor Lore Text */}
           {weapon.flavorText && (
             <p className="text-xs sm:text-sm italic text-slate-400 border-l-2 border-amber-500/50 pl-3 py-1">
-              "{weapon.flavorText}"
+              {weapon.flavorText}
             </p>
           )}
 
