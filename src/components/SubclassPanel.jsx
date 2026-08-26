@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Sparkles, RefreshCw, Check, X, Search, Zap, Shield } from 'lucide-react';
+import { Sparkles, RefreshCw, Check, X, Search, Zap, Shield, Lock } from 'lucide-react';
 import { getDamageInfo } from '../utils/destiny-helpers';
-import { resolveSocketOptions, ROLE_LABELS } from '../utils/subclass';
+import { resolveSocketOptions, describePlugs, ROLE_LABELS } from '../utils/subclass';
 import LongPressable from './LongPressable';
 
 /**
@@ -20,15 +20,54 @@ const ROLE_TILE = {
   default: 'w-14 h-14'
 };
 
-function PlugTile({ socket, size, onClick, disabled, busy }) {
+/**
+ * What a plug does to the Guardian, in a line: the Fragment slots an Aspect
+ * pays for, and the stats a Fragment moves. This is the trade-off a player is
+ * choosing between, so it sits next to the name rather than inside the text.
+ */
+function EffectChips({ fragmentSlots, stats }) {
+  const hasSlots = fragmentSlots > 0;
+  if (!hasSlots && !stats?.length) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 mt-1">
+      {hasSlots && (
+        <span className="px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/40 text-[10px] font-mono font-bold text-amber-300">
+          +{fragmentSlots} Fragment slot{fragmentSlots === 1 ? '' : 's'}
+        </span>
+      )}
+      {(stats || []).map(stat => (
+        <span
+          key={stat.name}
+          className={`px-1.5 py-0.5 rounded border text-[10px] font-mono ${
+            stat.value > 0
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}
+        >
+          {stat.value > 0 ? '+' : ''}{stat.value} {stat.name}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function PlugTile({ socket, size, onClick, disabled, busy, fragmentSlots = 0 }) {
   const plug = socket.plug;
   const isEmpty = !plug || plug.isEmpty;
+  // A Fragment slot the Aspects have not paid for yet. The game leaves the
+  // socket in place and switches it off, which is the only signal there is.
+  const isLocked = socket.isEnabled === false;
 
   return (
     <button
       onClick={onClick}
       disabled={disabled}
-      title={plug?.name || `Empty ${ROLE_LABELS[socket.role] || 'socket'}`}
+      title={
+        isLocked
+          ? `${ROLE_LABELS[socket.role] || 'Socket'} locked -- fit an Aspect that grants more slots`
+          : plug?.name || `Empty ${ROLE_LABELS[socket.role] || 'socket'}`
+      }
       className={`relative ${size} rounded-xl bg-black/70 border ${
         isEmpty ? 'border-dashed border-slate-700' : 'border-slate-600'
       } overflow-hidden flex items-center justify-center flex-shrink-0 transition-all shadow-sm ${
@@ -43,6 +82,19 @@ function PlugTile({ socket, size, onClick, disabled, busy }) {
         <Sparkles className="w-5 h-5 text-slate-600" />
       )}
 
+      {/* How many Fragment slots this Aspect pays for. */}
+      {fragmentSlots > 0 && (
+        <span className="absolute bottom-0 right-0 px-1 rounded-tl bg-black/85 text-[9px] font-mono font-bold text-amber-300 leading-tight">
+          +{fragmentSlots}
+        </span>
+      )}
+
+      {isLocked && !busy && (
+        <div className="absolute inset-0 bg-black/65 flex items-center justify-center">
+          <Lock className="w-4 h-4 text-slate-300" />
+        </div>
+      )}
+
       {busy && (
         <div className="absolute inset-0 bg-black/80 flex items-center justify-center">
           <RefreshCw className="w-4 h-4 text-amber-400 animate-spin" />
@@ -52,7 +104,7 @@ function PlugTile({ socket, size, onClick, disabled, busy }) {
   );
 }
 
-function SocketGroup({ title, sockets, size, onPick, actionLoading, pendingSocket, children }) {
+function SocketGroup({ title, sockets, size, onPick, actionLoading, pendingSocket, details, children }) {
   if (!sockets?.length && !children) return null;
 
   return (
@@ -72,10 +124,13 @@ function SocketGroup({ title, sockets, size, onPick, actionLoading, pendingSocke
               size={size}
               busy={pendingSocket === socket.index}
               disabled={!!actionLoading && pendingSocket !== socket.index}
+              fragmentSlots={details?.[socket.plugHash]?.fragmentSlots || 0}
               onClick={() => onPick(socket)}
             />
             <div className="text-[9px] font-mono text-slate-400 leading-tight text-center break-words">
-              {socket.plug && !socket.plug.isEmpty ? socket.plug.name : 'Empty'}
+              {socket.isEnabled === false
+                ? 'Locked'
+                : socket.plug && !socket.plug.isEmpty ? socket.plug.name : 'Empty'}
             </div>
           </div>
         ))}
@@ -187,8 +242,11 @@ function PlugPickerSheet({ socket, onClose, onSelect, applying }) {
                       </span>
                     )}
                   </div>
+
+                  <EffectChips fragmentSlots={opt.fragmentSlots} stats={opt.stats} />
+
                   {opt.description && (
-                    <p className="text-[11px] text-slate-400 leading-snug mt-0.5 line-clamp-3">
+                    <p className="text-[11px] text-slate-400 leading-snug mt-1 whitespace-pre-line">
                       {opt.description}
                     </p>
                   )}
@@ -212,6 +270,27 @@ export default function SubclassPanel({
 }) {
   const [pickerSocket, setPickerSocket] = useState(null);
   const [pendingSocket, setPendingSocket] = useState(null);
+  const [details, setDetails] = useState({});
+
+  // What the fitted plugs do, keyed by hash. Resolved here rather than with the
+  // profile: it is a handful of extra requests, and only this screen needs it.
+  const fittedKey = (subclass?.editableSockets || [])
+    .map(socket => socket.plugHash)
+    .filter(Boolean)
+    .join(',');
+
+  useEffect(() => {
+    if (!fittedKey) {
+      setDetails({});
+      return undefined;
+    }
+    let cancelled = false;
+    describePlugs(fittedKey.split(','), { keepEmpty: true }).then(plugs => {
+      if (cancelled) return;
+      setDetails(Object.fromEntries(plugs.map(plug => [plug.hash, plug])));
+    });
+    return () => { cancelled = true; };
+  }, [fittedKey]);
 
   if (!subclass) {
     return (
@@ -243,6 +322,14 @@ export default function SubclassPanel({
   const fragmentsFitted = subclass.fragments.filter(s => s.plug && !s.plug.isEmpty).length;
   const aspectsFitted = subclass.aspects.filter(s => s.plug && !s.plug.isEmpty).length;
 
+  // A Fragment socket the Aspects have not paid for is switched off by the
+  // game, so the unlocked ones are the slots actually available.
+  const fragmentSlotsOpen = subclass.fragments.filter(s => s.isEnabled !== false).length;
+  const slotsFromAspects = subclass.aspects.reduce(
+    (total, socket) => total + (details[socket.plugHash]?.fragmentSlots || 0),
+    0
+  );
+
   return (
     <div className="space-y-4">
 
@@ -259,7 +346,7 @@ export default function SubclassPanel({
             </span>
             <h3 className="font-heading font-bold text-white text-xl truncate">{subclass.name}</h3>
             <p className="text-[11px] text-slate-400 font-mono">
-              {aspectsFitted}/{subclass.aspects.length} Aspects • {fragmentsFitted}/{subclass.fragments.length} Fragments
+              {aspectsFitted}/{subclass.aspects.length} Aspects • {fragmentsFitted}/{fragmentSlotsOpen || subclass.fragments.length} Fragments
             </p>
           </div>
         </div>
@@ -315,6 +402,7 @@ export default function SubclassPanel({
             onPick={setPickerSocket}
             actionLoading={actionLoading}
             pendingSocket={pendingSocket}
+            details={details}
           />
         )}
 
@@ -325,6 +413,7 @@ export default function SubclassPanel({
           onPick={setPickerSocket}
           actionLoading={actionLoading}
           pendingSocket={pendingSocket}
+          details={details}
         />
       </div>
 
@@ -337,19 +426,23 @@ export default function SubclassPanel({
           onPick={setPickerSocket}
           actionLoading={actionLoading}
           pendingSocket={pendingSocket}
+          details={details}
         />
 
         <SocketGroup
-          title={`Fragments (${fragmentsFitted}/${subclass.fragments.length})`}
+          title={`Fragments (${fragmentsFitted}/${fragmentSlotsOpen || subclass.fragments.length})`}
           sockets={subclass.fragments}
           size={ROLE_TILE.fragment}
           onPick={setPickerSocket}
           actionLoading={actionLoading}
           pendingSocket={pendingSocket}
+          details={details}
         />
 
         <p className="text-[11px] text-slate-500 font-mono">
-          Fragment slots come from the Aspects you fit -- swap an Aspect and the game re-counts them.
+          {slotsFromAspects > 0
+            ? `Your Aspects pay for ${slotsFromAspects} Fragment slot${slotsFromAspects === 1 ? '' : 's'} -- swap an Aspect and the game re-counts them.`
+            : 'Fragment slots come from the Aspects you fit -- swap an Aspect and the game re-counts them.'}
         </p>
       </div>
 

@@ -56,7 +56,7 @@ export async function getItemDefinition(itemHash) {
 
   // Try sessionStorage
   try {
-    const cached = sessionStorage.getItem(`d2_def3_${hashKey}`);
+    const cached = sessionStorage.getItem(`d2_def4_${hashKey}`);
     if (cached) {
       const parsed = JSON.parse(cached);
       memoryCache.set(hashKey, parsed);
@@ -114,6 +114,18 @@ export async function getItemDefinition(itemHash) {
         // identifier reads like 'hunter.arc.aspects' or 'shared.fragments'.
         plugCategoryIdentifier: data.Response.plug?.plugCategoryIdentifier || null,
         plugCategoryHash: data.Response.plug?.plugCategoryHash ?? null,
+        // An Aspect or Fragment keeps its display properties nearly empty and
+        // says what it actually does through a sandbox perk, so the perk
+        // hashes have to travel with the definition or the text is lost.
+        perkHashes: (data.Response.perks || [])
+          .map(p => p.perkHash)
+          .filter(h => h !== null && h !== undefined),
+        // What a plug changes about the Guardian: an Aspect's Fragment slots,
+        // a Fragment's stat cost. The stat definitions name them.
+        investmentStats: (data.Response.investmentStats || []).map(stat => ({
+          statTypeHash: stat.statTypeHash,
+          value: stat.value ?? 0
+        })),
         // Where a subclass's own sockets get their options from, for the
         // plugs the live profile did not list.
         socketEntries: (data.Response.sockets?.socketEntries || []).map(entry => ({
@@ -129,7 +141,7 @@ export async function getItemDefinition(itemHash) {
 
       memoryCache.set(hashKey, def);
       try {
-        sessionStorage.setItem(`d2_def3_${hashKey}`, JSON.stringify(def));
+        sessionStorage.setItem(`d2_def4_${hashKey}`, JSON.stringify(def));
       } catch (e) {}
 
       return def;

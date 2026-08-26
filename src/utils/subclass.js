@@ -1,5 +1,5 @@
 import { batchResolveItemDefinitions } from './item-definition-cache';
-import { getPlugSetItemHashes } from './definition-api';
+import { getPlugSetItemHashes, batchResolveDefinitions, displayOf } from './definition-api';
 import { runInventoryAction } from './destiny-inventory-actions';
 
 /**
@@ -264,22 +264,103 @@ export async function resolveSocketOptions(socket) {
   }
   if (!hashes.length && socket.plugHash) hashes = [socket.plugHash];
 
-  const defs = await batchResolveItemDefinitions(hashes);
+  return describePlugs(hashes, { keepEmpty: true });
+}
 
-  return hashes
+/**
+ * A stat that counts Fragment slots rather than measuring the Guardian.
+ *
+ * An Aspect's whole trade-off is how many Fragments it pays for, and the
+ * manifest states that as an ordinary investment stat -- the stat's own name is
+ * what tells it apart from the six armour stats a Fragment moves.
+ */
+function isCapacityStat(statDef) {
+  const name = (displayOf(statDef).name || '').toLowerCase();
+  return name.includes('capacity') || name.includes('fragment');
+}
+
+/**
+ * Fill in what a plug actually does.
+ *
+ * Aspects and Fragments carry almost nothing in their display properties: the
+ * text a player needs is on a sandbox perk hanging off the plug, and the
+ * Fragment slots an Aspect grants -- or the stats a Fragment costs -- are
+ * investment stats named by a separate definition. Without this, the picker is
+ * a list of names and no reason to choose between them.
+ */
+async function enrichPlugDefinitions(hashes, defs) {
+  const perkHashes = [];
+  const statHashes = [];
+
+  hashes.forEach(hash => {
+    const def = defs[hash];
+    if (!def) return;
+    if (!def.description) perkHashes.push(...(def.perkHashes || []));
+    (def.investmentStats || []).forEach(stat => statHashes.push(stat.statTypeHash));
+  });
+
+  const [perkDefs, statDefs] = await Promise.all([
+    batchResolveDefinitions('DestinySandboxPerkDefinition', perkHashes),
+    batchResolveDefinitions('DestinyStatDefinition', statHashes)
+  ]);
+
+  return (hash) => {
+    const def = defs[hash];
+    if (!def) return null;
+
+    // The plug's own text first; the sandbox perks are what Aspects and
+    // Fragments leave it to.
+    const perkText = [...new Set(
+      (def.perkHashes || [])
+        .map(perkHash => displayOf(perkDefs[perkHash]).description)
+        .filter(Boolean)
+    )];
+    const description = def.description || perkText.join('\n\n');
+
+    let fragmentSlots = 0;
+    const stats = [];
+    (def.investmentStats || []).forEach(stat => {
+      if (!stat.value) return;
+      const statDef = statDefs[stat.statTypeHash];
+      if (isCapacityStat(statDef)) {
+        fragmentSlots += stat.value;
+        return;
+      }
+      const name = displayOf(statDef).name;
+      if (name) stats.push({ name, value: stat.value });
+    });
+
+    return { description, fragmentSlots, stats };
+  };
+}
+
+/**
+ * Name, icon and effect for a list of plug hashes -- what a loadout stores, and
+ * what a socket offers. Empty-socket placeholders are dropped unless the caller
+ * is filling a picker, where "take this back out" is a real choice.
+ */
+export async function describePlugs(hashes, { keepEmpty = false } = {}) {
+  const list = (hashes || []).filter(h => h !== null && h !== undefined);
+  const defs = await batchResolveItemDefinitions(list);
+  const detailFor = await enrichPlugDefinitions(list, defs);
+
+  return list
     .map(hash => {
       const def = defs[hash];
       if (!def) return null;
+      const detail = detailFor(hash);
       return {
         hash,
         name: def.name,
         icon: def.icon,
-        description: def.description,
+        description: detail.description,
+        stats: detail.stats,
+        fragmentSlots: detail.fragmentSlots,
         isEmpty: isEmptyPlug(def),
         role: classifyPlug(def)
       };
     })
-    .filter(Boolean);
+    .filter(plug => plug && (keepEmpty || !plug.isEmpty));
 }
 
 /**
@@ -316,24 +397,4 @@ export async function insertPlug({
       membershipType
     }
   });
-}
-
-/**
- * Name and icon for a plug hash out of a loadout, for display only.
- * Loadouts store their subclass configuration as bare hashes.
- */
-export async function describePlugs(hashes) {
-  const defs = await batchResolveItemDefinitions(hashes || []);
-  return (hashes || []).map(hash => {
-    const def = defs[hash];
-    if (!def) return null;
-    return {
-      hash,
-      name: def.name,
-      icon: def.icon,
-      description: def.description,
-      role: classifyPlug(def),
-      isEmpty: isEmptyPlug(def)
-    };
-  }).filter(p => p && !p.isEmpty);
 }
