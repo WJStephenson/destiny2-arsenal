@@ -108,7 +108,6 @@ export default function SlotPickerModal({
   const [search, setSearch] = useState('');
   const [tierFilter, setTierFilter] = useState('all'); // 'all' | 'Exotic' | 'Legendary' | 'Rare'
   const [damageFilter, setDamageFilter] = useState('all'); // 'all' | 'Solar' | 'Arc' | ...
-  const [sourceFilter, setSourceFilter] = useState('all'); // 'all' | 'vault' | 'characters'
   const [artificeOnly, setArtificeOnly] = useState(false);
   const [masterworkOnly, setMasterworkOnly] = useState(false);
   const [sortBy, setSortBy] = useState('power_desc');
@@ -171,7 +170,7 @@ export default function SlotPickerModal({
     const query = search.trim().toLowerCase();
 
     return candidates
-      .filter(({ item, fromVault }) => {
+      .filter(({ item }) => {
         // The slot comes from the item's own definition: anything stored in the
         // vault reports the vault as its bucket, never the slot it equips into.
         if (equipSlotKey(item) !== slotGroup.key) return false;
@@ -186,9 +185,6 @@ export default function SlotPickerModal({
           && item.classType !== 'Any' && item.classType !== activeChar.classType) {
           return false;
         }
-
-        if (sourceFilter === 'vault' && !fromVault) return false;
-        if (sourceFilter === 'characters' && fromVault) return false;
 
         if (tierFilter !== 'all' && item.tierTypeName !== tierFilter) return false;
 
@@ -231,7 +227,6 @@ export default function SlotPickerModal({
     isWeaponSlot,
     isArmorSlot,
     activeChar?.classType,
-    sourceFilter,
     tierFilter,
     damageFilter,
     artificeOnly,
@@ -240,8 +235,18 @@ export default function SlotPickerModal({
     sortBy
   ]);
 
+  /**
+   * Two groups, the other Guardians before the vault: a piece already on a
+   * Guardian is one move away and the likelier pick, and a vault of hundreds
+   * would otherwise bury it.
+   */
+  const sections = useMemo(() => ([
+    { key: 'guardians', label: 'On other Guardians', entries: matchingItems.filter(e => !e.fromVault) },
+    { key: 'vault', label: 'In the Vault', entries: matchingItems.filter(e => e.fromVault) }
+  ].filter(section => section.entries.length > 0)), [matchingItems]);
+
   const hasActiveFilters = !!search || tierFilter !== 'all' || damageFilter !== 'all'
-    || sourceFilter !== 'all' || artificeOnly || masterworkOnly;
+    || artificeOnly || masterworkOnly;
 
   const handleTileTap = (entry) => {
     const { item, equippedElsewhere, sourceLabel } = entry;
@@ -271,7 +276,7 @@ export default function SlotPickerModal({
       {/* The overlay never scrolls; the panel is bounded and scrolls inside, so
           no part of it can end up out of reach on a short screen. */}
       <div
-        className="relative w-full max-w-5xl max-h-[94dvh] sm:max-h-[88dvh] bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        className="relative w-full max-w-5xl h-[92dvh] sm:h-[40rem] sm:max-h-[88dvh] bg-[#121722] border-t sm:border border-[#28354d] rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sm:hidden w-12 h-1.5 bg-slate-600/70 rounded-full mx-auto my-2.5 flex-shrink-0" />
@@ -349,15 +354,6 @@ export default function SlotPickerModal({
 
           <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
             <div className="flex items-center gap-1 flex-shrink-0">
-              <span className="text-[10px] text-slate-500 font-mono mr-0.5">Where:</span>
-              {[['all', 'Everywhere'], ['vault', 'Vault'], ['characters', 'Guardians']].map(([value, label]) => (
-                <button key={value} onClick={() => setSourceFilter(value)} className={pill(sourceFilter === value)}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center gap-1 border-l border-[#20293a] pl-2 flex-shrink-0">
               <span className="text-[10px] text-slate-500 font-mono mr-0.5">Rarity:</span>
               {['all', 'Exotic', 'Legendary', 'Rare'].map(tier => (
                 <button key={tier} onClick={() => setTierFilter(tier)} className={pill(tierFilter === tier)}>
@@ -415,91 +411,108 @@ export default function SlotPickerModal({
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-1.5 sm:gap-3">
-              {matchingItems.map(({ item, sourceLabel, fromVault, equippedElsewhere }) => {
-                const tierInfo = getTierInfo(item.tierTypeName);
-                const isTransferring = actionLoading === item.itemInstanceId;
-                const dimmed = equippedElsewhere || isFull || (!!actionLoading && !isTransferring);
-
-                return (
-                  <div key={item.itemInstanceId || `${item.itemHash}-${sourceLabel}`} className="flex flex-col min-w-0 group">
-                    <LongPressable
-                      as="div"
-                      onClick={() => handleTileTap({ item, sourceLabel, equippedElsewhere })}
-                      onLongPress={() => onInspect?.(item)}
-                      title={`${item.name}${item.power ? ` • ✧ ${item.power}` : ''} — tap to bring over, hold to inspect`}
-                      className={`relative w-full aspect-square rounded-2xl overflow-hidden border-2 shadow-md transition-transform duration-150 ${
-                        item.isMasterwork
-                          ? 'border-yellow-400 ring-2 ring-yellow-400/40'
-                          : (tierInfo.border || 'border-slate-700')
-                      } ${
-                        dimmed
-                          ? 'opacity-45'
-                          : 'hover:border-amber-400 hover:scale-[1.04] active:scale-95'
-                      }`}
-                    >
-                      <ItemIcon item={item} />
-
-                      {/* Element, top left */}
-                      {item.damageType && (
-                        <div className="absolute top-1.5 left-1.5 p-1 rounded-md bg-black/85 border border-white/10 z-10">
-                          <DamageIcon type={item.damageType} className="w-3 h-3" />
-                        </div>
-                      )}
-
-                      {/* Artifice, top right */}
-                      {item.isArtifice && (
-                        <div className="absolute top-1.5 right-1.5 px-1 py-0.5 rounded bg-indigo-600 text-[8px] font-bold text-white font-mono leading-none z-10">
-                          A
-                        </div>
-                      )}
-
-                      {/* Locked, bottom left. Where it lives is written under
-                          the tile, which has room for the word at any size. */}
-                      {equippedElsewhere && (
-                        <span className="absolute bottom-1.5 left-1.5 p-1 rounded-md bg-black/90 border border-white/15 z-10">
-                          <Lock className="w-2.5 h-2.5 text-slate-300" />
-                        </span>
-                      )}
-
-                      {/* Power, bottom right */}
-                      {item.power && (
-                        <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-black/90 text-amber-300 border border-amber-500/20 text-[9px] font-mono font-bold leading-none z-10">
-                          {item.power}
-                        </span>
-                      )}
-
-                      {isTransferring && (
-                        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 z-20">
-                          <RefreshCw className="w-5 h-5 text-amber-400 animate-spin" />
-                          <span className="text-[8px] font-mono text-amber-300 font-bold">MOVING</span>
-                        </div>
-                      )}
-
-                      {!dimmed && !isTransferring && (
-                        <div className="absolute inset-0 bg-amber-500/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none z-10">
-                          <ArrowRightLeft className="w-5 h-5 text-white drop-shadow-md" />
-                        </div>
-                      )}
-                    </LongPressable>
-
-                    <div className="w-full mt-1 px-0.5 min-w-0 text-center">
-                      <span
-                        className="block text-[10px] sm:text-[11px] font-bold text-slate-200 truncate group-hover:text-amber-300 font-heading"
-                        title={item.name}
-                      >
-                        {item.name}
+            <div className="space-y-5">
+              {sections.map(section => (
+                <div key={section.key} className="space-y-2">
+                  {/* Only worth a heading once there is a second group to tell
+                      it apart from. */}
+                  {sections.length > 1 && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-500 whitespace-nowrap">
+                        {section.label}
                       </span>
-                      <span className={`block text-[9px] font-mono truncate ${
-                        fromVault ? 'text-slate-400' : 'text-indigo-300'
-                      }`}>
-                        {sourceLabel}
-                        {isArmorSlot && item.armorStats?.total ? ` · ${item.armorStats.total}` : ''}
-                      </span>
+                      <span className="flex-1 h-px bg-[#20293a]" />
                     </div>
+                  )}
+
+                  <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 lg:grid-cols-10 gap-1.5 sm:gap-3">
+                    {section.entries.map(({ item, sourceLabel, fromVault, equippedElsewhere }) => {
+                      const tierInfo = getTierInfo(item.tierTypeName);
+                      const isTransferring = actionLoading === item.itemInstanceId;
+                      const dimmed = equippedElsewhere || isFull || (!!actionLoading && !isTransferring);
+
+                      return (
+                        <div key={item.itemInstanceId || `${item.itemHash}-${sourceLabel}`} className="flex flex-col min-w-0 group">
+                          <LongPressable
+                            as="div"
+                            onClick={() => handleTileTap({ item, sourceLabel, equippedElsewhere })}
+                            onLongPress={() => onInspect?.(item)}
+                            title={`${item.name}${item.power ? ` • ✧ ${item.power}` : ''} — tap to bring over, hold to inspect`}
+                            className={`relative w-full aspect-square rounded-2xl overflow-hidden border-2 shadow-md transition-transform duration-150 ${
+                              item.isMasterwork
+                                ? 'border-yellow-400 ring-2 ring-yellow-400/40'
+                                : (tierInfo.border || 'border-slate-700')
+                            } ${
+                              dimmed
+                                ? 'opacity-45'
+                                : 'hover:border-amber-400 hover:scale-[1.04] active:scale-95'
+                            }`}
+                          >
+                            <ItemIcon item={item} />
+
+                            {/* Element, top left */}
+                            {item.damageType && (
+                              <div className="absolute top-1.5 left-1.5 p-1 rounded-md bg-black/85 border border-white/10 z-10">
+                                <DamageIcon type={item.damageType} className="w-3 h-3" />
+                              </div>
+                            )}
+
+                            {/* Artifice, top right */}
+                            {item.isArtifice && (
+                              <div className="absolute top-1.5 right-1.5 px-1 py-0.5 rounded bg-indigo-600 text-[8px] font-bold text-white font-mono leading-none z-10">
+                                A
+                              </div>
+                            )}
+
+                            {/* Locked, bottom left. Where it lives is written under
+                                the tile, which has room for the word at any size. */}
+                            {equippedElsewhere && (
+                              <span className="absolute bottom-1.5 left-1.5 p-1 rounded-md bg-black/90 border border-white/15 z-10">
+                                <Lock className="w-2.5 h-2.5 text-slate-300" />
+                              </span>
+                            )}
+
+                            {/* Power, bottom right */}
+                            {item.power && (
+                              <span className="absolute bottom-1.5 right-1.5 px-1.5 py-0.5 rounded-md bg-black/90 text-amber-300 border border-amber-500/20 text-[9px] font-mono font-bold leading-none z-10">
+                                {item.power}
+                              </span>
+                            )}
+
+                            {isTransferring && (
+                              <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center gap-1 z-20">
+                                <RefreshCw className="w-5 h-5 text-amber-400 animate-spin" />
+                                <span className="text-[8px] font-mono text-amber-300 font-bold">MOVING</span>
+                              </div>
+                            )}
+
+                            {!dimmed && !isTransferring && (
+                              <div className="absolute inset-0 bg-amber-500/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none z-10">
+                                <ArrowRightLeft className="w-5 h-5 text-white drop-shadow-md" />
+                              </div>
+                            )}
+                          </LongPressable>
+
+                          <div className="w-full mt-1 px-0.5 min-w-0 text-center">
+                            <span
+                              className="block text-[10px] sm:text-[11px] font-bold text-slate-200 truncate group-hover:text-amber-300 font-heading"
+                              title={item.name}
+                            >
+                              {item.name}
+                            </span>
+                            <span className={`block text-[9px] font-mono truncate ${
+                              fromVault ? 'text-slate-400' : 'text-indigo-300'
+                            }`}>
+                              {sourceLabel}
+                              {isArmorSlot && item.armorStats?.total ? ` · ${item.armorStats.total}` : ''}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
-                );
-              })}
+                </div>
+              ))}
             </div>
           )}
         </div>
