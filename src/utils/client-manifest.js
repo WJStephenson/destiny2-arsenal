@@ -134,6 +134,9 @@ export async function searchWeaponsClient(filters = {}) {
     results = results.filter(w => 
       w.name.toLowerCase().includes(q) ||
       (w.weaponType && w.weaponType.toLowerCase().includes(q)) ||
+      // 'Solar' is as much a way of naming a weapon as 'Hand Cannon' is.
+      (w.damageType && w.damageType.toLowerCase().includes(q)) ||
+      (w.ammoType && w.ammoType.toLowerCase().includes(q)) ||
       (w.sourceString && w.sourceString.toLowerCase().includes(q)) ||
       (w.intrinsic?.name && w.intrinsic.name.toLowerCase().includes(q))
     );
@@ -279,7 +282,7 @@ export async function searchArmorClient(filters = {}) {
 
 export function getSuggestionsClient(query) {
   if (!query || !query.trim() || !cachedWeapons) {
-    return { weapons: [], archetypes: [], sources: [], weaponTypes: [] };
+    return { weapons: [], archetypes: [], sources: [], weaponTypes: [], damageTypes: [] };
   }
 
   const q = query.trim().toLowerCase();
@@ -292,6 +295,7 @@ export function getSuggestionsClient(query) {
   const sourcesSet = new Set();
   const weaponTypesSet = new Set();
   const categoriesSet = new Set();
+  const damageTypesSet = new Set();
 
   cachedWeapons.forEach(w => {
     if (w.intrinsic?.name && w.intrinsic.name.toLowerCase().includes(q)) {
@@ -308,6 +312,9 @@ export function getSuggestionsClient(query) {
     if (w.weaponType && w.weaponType.toLowerCase().includes(q)) {
       weaponTypesSet.add(w.weaponType);
     }
+    if (w.damageType && w.damageType.toLowerCase().includes(q)) {
+      damageTypesSet.add(w.damageType);
+    }
   });
 
   const sources = [
@@ -319,7 +326,8 @@ export function getSuggestionsClient(query) {
     weapons: matchingWeapons,
     archetypes: Array.from(archetypesSet).slice(0, 8),
     sources,
-    weaponTypes: Array.from(weaponTypesSet).slice(0, 6)
+    weaponTypes: Array.from(weaponTypesSet).slice(0, 6),
+    damageTypes: Array.from(damageTypesSet).slice(0, 6)
   };
 }
 

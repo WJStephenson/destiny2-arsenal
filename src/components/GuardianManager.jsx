@@ -1497,10 +1497,19 @@ export default function GuardianManager({
   const filteredVaultItems = (vaultFilter === 'armor' ? vaultArmour : vaultWeapons).filter(item => {
     if (vaultSearch.trim()) {
       const q = vaultSearch.toLowerCase().trim();
-      return item.name.toLowerCase().includes(q) || 
-        (item.weaponType && item.weaponType.toLowerCase().includes(q)) ||
-        (item.armorSlot && item.armorSlot.toLowerCase().includes(q)) ||
-        (item.perks && item.perks.some(p => (p.name || p).toLowerCase().includes(q)));
+      // Everything the tile shows is worth searching -- 'solar' names a weapon
+      // as usefully as 'hand cannon' does.
+      const haystack = [
+        item.name,
+        item.weaponType,
+        item.armorSlot,
+        item.itemTypeDisplayName,
+        item.damageType,
+        item.ammoType,
+        item.tierTypeName,
+        ...(item.perks || []).map(p => (typeof p === 'string' ? p : p?.name))
+      ];
+      return haystack.some(field => field && String(field).toLowerCase().includes(q));
     }
     return true;
   });

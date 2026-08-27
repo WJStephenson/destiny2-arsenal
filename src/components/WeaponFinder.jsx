@@ -58,7 +58,7 @@ export default function WeaponFinder({
   const [isPerkDropdownOpen, setIsPerkDropdownOpen] = useState(false);
 
   // Name / Archetype / Keyword Autofill Suggestions State
-  const [suggestions, setSuggestions] = useState({ weapons: [], archetypes: [], sources: [], weaponTypes: [] });
+  const [suggestions, setSuggestions] = useState({ weapons: [], archetypes: [], sources: [], weaponTypes: [], damageTypes: [] });
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const searchContainerRef = useRef(null);
   const perkContainerRef = useRef(null);
@@ -92,7 +92,7 @@ export default function WeaponFinder({
   // Fetch suggestions when search input changes
   useEffect(() => {
     if (!search || search.trim().length === 0) {
-      setSuggestions({ weapons: [], archetypes: [], sources: [], weaponTypes: [] });
+      setSuggestions({ weapons: [], archetypes: [], sources: [], weaponTypes: [], damageTypes: [] });
       return;
     }
 
@@ -194,6 +194,7 @@ export default function WeaponFinder({
       if (type === 'archetype') addUnique(setSelectedArchetypes, selectedArchetypes, value);
       else if (type === 'source') addUnique(setSelectedSources, selectedSources, value);
       else if (type === 'weaponType') addUnique(setSelectedWeaponTypes, selectedWeaponTypes, value);
+      else if (type === 'damageType') addUnique(setSelectedDamageTypes, selectedDamageTypes, value);
       setSearch('');
     }
     setIsSearchDropdownOpen(false);
@@ -308,7 +309,8 @@ export default function WeaponFinder({
   const hasSuggestions = suggestions.weapons?.length > 0 || 
     suggestions.archetypes?.length > 0 || 
     suggestions.sources?.length > 0 || 
-    suggestions.weaponTypes?.length > 0;
+    suggestions.weaponTypes?.length > 0 ||
+    suggestions.damageTypes?.length > 0;
 
   return (
     <div className="space-y-6">
@@ -425,6 +427,29 @@ export default function WeaponFinder({
                             {src}
                           </button>
                         ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Matching Elements */}
+                  {suggestions.damageTypes?.length > 0 && (
+                    <div className="space-y-1 pt-1 border-t border-[#28354d]">
+                      <div className="text-[10px] font-bold text-sky-400 font-heading uppercase tracking-wider px-2 flex items-center gap-1">
+                        <Sparkles className="w-3 h-3 text-sky-400" /> Elements
+                      </div>
+                      <div className="flex flex-wrap gap-1 px-1">
+                        {suggestions.damageTypes.map((dt) => {
+                          const damageInfo = getDamageInfo(dt);
+                          return (
+                            <button
+                              key={dt}
+                              onClick={() => selectSuggestion('damageType', dt)}
+                              className={`px-2 py-1 rounded bg-[#0b0e14] hover:bg-slate-800 border border-[#20293a] text-xs font-mono transition-colors ${damageInfo.text}`}
+                            >
+                              {dt}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
