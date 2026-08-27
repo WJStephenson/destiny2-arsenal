@@ -13,11 +13,13 @@ import {
   Box,
   Lock,
   Shield,
-  Crosshair
+  Crosshair,
+  Sparkles
 } from 'lucide-react';
-import { getTierInfo } from '../utils/destiny-helpers';
+import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
 import { equipSlotKey, WEAPON_SLOT_KEYS, ARMOR_SLOT_KEYS } from '../utils/destiny-buckets';
 import LongPressable from './LongPressable';
+import SearchField from './SearchField';
 import useBodyScrollLock from '../utils/useBodyScrollLock';
 
 /** A character can hold nine items per slot, on top of the one it is wearing. */
@@ -169,6 +171,83 @@ export default function SlotPickerModal({
 
     return entries;
   }, [vaultItems, characters, activeChar?.characterId]);
+
+  /**
+   * What the picker's search can offer -- drawn from the candidates it holds,
+   * so every suggestion leads somewhere.
+   */
+  const searchGroups = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return [];
+
+    const matches = (value) => value && String(value).toLowerCase().includes(query);
+    const named = [];
+    const types = new Set();
+    const elements = new Set();
+    const perks = new Set();
+
+    const seenNames = new Set();
+
+    candidates.forEach(({ item }) => {
+      if (equipSlotKey(item) !== slotGroup.key) return;
+      // One row per name: a vault holds four of the same gun, and four
+      // identical rows are no more use than one.
+      if (matches(item.name) && named.length < 5 && !seenNames.has(item.name)) {
+        seenNames.add(item.name);
+        named.push(item);
+      }
+      if (matches(item.weaponType || item.armorSlot)) types.add(item.weaponType || item.armorSlot);
+      if (matches(item.damageType)) elements.add(item.damageType);
+      (item.perks || []).forEach(perk => {
+        const name = typeof perk === 'string' ? perk : perk?.name;
+        if (matches(name) && perks.size < 6) perks.add(name);
+      });
+    });
+
+    return [
+      {
+        key: 'items',
+        label: 'Matching gear',
+        icon: isWeaponSlot ? Crosshair : Shield,
+        tone: 'text-slate-400',
+        layout: 'rows',
+        items: named.map(item => ({
+          value: item.itemInstanceId,
+          label: item.name,
+          detail: [item.damageType, item.itemTypeDisplayName].filter(Boolean).join(' • '),
+          icon: item.icon,
+          onSelect: () => setSearch(item.name)
+        }))
+      },
+      {
+        key: 'elements',
+        label: 'Elements',
+        icon: Sparkles,
+        tone: 'text-orange-400',
+        items: [...elements].map(el => ({
+          value: el, label: el, tone: getDamageInfo(el).text, onSelect: () => setDamageFilter(el)
+        }))
+      },
+      {
+        key: 'types',
+        label: 'Types',
+        icon: isWeaponSlot ? Crosshair : Shield,
+        tone: 'text-purple-400',
+        items: [...types].slice(0, 5).map(type => ({
+          value: type, label: type, onSelect: () => setSearch(type)
+        }))
+      },
+      {
+        key: 'perks',
+        label: 'Perks',
+        icon: Sparkles,
+        tone: 'text-amber-400',
+        items: [...perks].map(perk => ({
+          value: perk, label: perk, onSelect: () => setSearch(perk)
+        }))
+      }
+    ];
+  }, [search, candidates, slotGroup.key, isWeaponSlot]);
 
   const matchingItems = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -322,25 +401,13 @@ export default function SlotPickerModal({
         {/* Search, sort and filters */}
         <div className="p-3 sm:p-4 bg-[#10141d] border-b border-[#20293a] space-y-2.5 flex-shrink-0">
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search by name, perk, type..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-8 py-2 bg-[#0b0e14] border border-[#20293a] rounded-xl text-xs sm:text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500/60"
-              />
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                  title="Clear search"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+            <SearchField
+              className="flex-1"
+              value={search}
+              onChange={setSearch}
+              placeholder="Search by name, perk, type or element..."
+              groups={searchGroups}
+            />
 
             <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-mono">
               <span>Sort:</span>

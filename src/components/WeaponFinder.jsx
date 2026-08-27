@@ -27,6 +27,7 @@ import {
 import { getDamageInfo, getTierInfo, getSourceCategoryBadge, generateDimQuery, withoutDuplicateEnhancedPerks, rollColumns, getAmmoInfo, getSlotInfo } from '../utils/destiny-helpers';
 import { searchWeaponsClient, getSuggestionsClient, searchPerksClient } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
+import SearchField, { FilterChips, CHIP_TONES } from './SearchField';
 import PerkIcon from './PerkIcon';
 
 export default function WeaponFinder({ 
@@ -59,8 +60,6 @@ export default function WeaponFinder({
 
   // Name / Archetype / Keyword Autofill Suggestions State
   const [suggestions, setSuggestions] = useState({ weapons: [], archetypes: [], sources: [], weaponTypes: [], damageTypes: [] });
-  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
-  const searchContainerRef = useRef(null);
   const perkContainerRef = useRef(null);
 
   // Column specific filters
@@ -75,12 +74,10 @@ export default function WeaponFinder({
   // Copy notification state
   const [copiedId, setCopiedId] = useState(null);
 
-  // Close dropdowns on outside click
+  // The perk builder closes on an outside click; the search field looks after
+  // its own dropdown.
   useEffect(() => {
     function handleClickOutside(e) {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
-        setIsSearchDropdownOpen(false);
-      }
       if (perkContainerRef.current && !perkContainerRef.current.contains(e.target)) {
         setIsPerkDropdownOpen(false);
       }
@@ -197,7 +194,6 @@ export default function WeaponFinder({
       else if (type === 'damageType') addUnique(setSelectedDamageTypes, selectedDamageTypes, value);
       setSearch('');
     }
-    setIsSearchDropdownOpen(false);
     setPage(1);
   };
 
@@ -262,16 +258,20 @@ export default function WeaponFinder({
   // One flat list so the chip strip does not need three near-identical blocks.
   const activeSearchFilters = [
     ...selectedWeaponTypes.map(v => ({
-      key: `type:${v}`, label: 'Type', value: v, tone: 'bg-purple-500/15 border-purple-500/40 text-purple-200',
+      key: `type:${v}`, label: 'Type', value: v, tone: CHIP_TONES.type,
       remove: () => removeFrom(setSelectedWeaponTypes, selectedWeaponTypes, v)
     })),
     ...selectedArchetypes.map(v => ({
-      key: `arch:${v}`, label: 'Frame', value: v, tone: 'bg-amber-500/15 border-amber-500/40 text-amber-200',
+      key: `arch:${v}`, label: 'Frame', value: v, tone: CHIP_TONES.frame,
       remove: () => removeFrom(setSelectedArchetypes, selectedArchetypes, v)
     })),
     ...selectedSources.map(v => ({
-      key: `src:${v}`, label: 'Source', value: v, tone: 'bg-sky-500/15 border-sky-500/40 text-sky-200',
+      key: `src:${v}`, label: 'Source', value: v, tone: CHIP_TONES.source,
       remove: () => removeFrom(setSelectedSources, selectedSources, v)
+    })),
+    ...selectedDamageTypes.map(v => ({
+      key: `elem:${v}`, label: 'Element', value: v, tone: CHIP_TONES.element,
+      remove: () => removeFrom(setSelectedDamageTypes, selectedDamageTypes, v)
     }))
   ];
 
@@ -279,6 +279,7 @@ export default function WeaponFinder({
     setSelectedWeaponTypes([]);
     setSelectedArchetypes([]);
     setSelectedSources([]);
+    setSelectedDamageTypes([]);
     setPage(1);
   };
 
@@ -306,11 +307,62 @@ export default function WeaponFinder({
     column4Perk ||
     originTrait;
 
-  const hasSuggestions = suggestions.weapons?.length > 0 || 
-    suggestions.archetypes?.length > 0 || 
-    suggestions.sources?.length > 0 || 
-    suggestions.weaponTypes?.length > 0 ||
-    suggestions.damageTypes?.length > 0;
+  /** What the search bar can offer for whatever has been typed. */
+  const searchGroups = [
+    {
+      key: 'weapons',
+      label: 'Weapons',
+      icon: Crosshair,
+      tone: 'text-slate-400',
+      layout: 'rows',
+      items: (suggestions.weapons || []).map(w => ({
+        value: w.id,
+        label: w.name,
+        detail: [w.damageType, w.weaponType].filter(Boolean).join(' • '),
+        icon: w.icon,
+        onSelect: () => selectSuggestion('weapon', w)
+      }))
+    },
+    {
+      key: 'archetypes',
+      label: 'Archetypes & Frames',
+      icon: Tag,
+      tone: 'text-amber-400',
+      items: (suggestions.archetypes || []).map(arch => ({
+        value: arch, label: arch, onSelect: () => selectSuggestion('archetype', arch)
+      }))
+    },
+    {
+      key: 'elements',
+      label: 'Elements',
+      icon: Sparkles,
+      tone: 'text-orange-400',
+      items: (suggestions.damageTypes || []).map(dt => ({
+        value: dt,
+        label: dt,
+        tone: getDamageInfo(dt).text,
+        onSelect: () => selectSuggestion('damageType', dt)
+      }))
+    },
+    {
+      key: 'types',
+      label: 'Weapon Types',
+      icon: Crosshair,
+      tone: 'text-purple-400',
+      items: (suggestions.weaponTypes || []).map(wt => ({
+        value: wt, label: wt, onSelect: () => selectSuggestion('weaponType', wt)
+      }))
+    },
+    {
+      key: 'sources',
+      label: 'Sources & Activities',
+      icon: MapPin,
+      tone: 'text-sky-400',
+      items: (suggestions.sources || []).map(src => ({
+        value: src, label: src, onSelect: () => selectSuggestion('source', src)
+      }))
+    }
+  ];
 
   return (
     <div className="space-y-6">
@@ -322,161 +374,14 @@ export default function WeaponFinder({
           {/* Main Search & Perk Builder Row */}
           <div className="flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
             
-            {/* Autofill Search Bar (Name, Archetype, Source) */}
-            <div className="relative flex-1" ref={searchContainerRef}>
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search name, type, archetype or source..."
-                value={search}
-                onChange={(e) => { 
-                  setSearch(e.target.value); 
-                  setIsSearchDropdownOpen(true);
-                  setPage(1); 
-                }}
-                onFocus={() => setIsSearchDropdownOpen(true)}
-                className="w-full pl-10 pr-10 py-2.5 bg-[#0b0e14] border border-[#20293a] rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-500/60 focus:ring-1 focus:ring-amber-500/40"
-              />
-              {search && (
-                <button 
-                  onClick={() => { setSearch(''); setIsSearchDropdownOpen(false); }}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-
-              {/* Autofill Dropdown Menu */}
-              {isSearchDropdownOpen && search.trim().length > 0 && hasSuggestions && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 max-h-80 overflow-y-auto bg-[#161c2b] border border-[#28354d] rounded-xl shadow-2xl z-50 p-2 space-y-3">
-                  
-                  {/* Matching Weapons */}
-                  {suggestions.weapons?.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="text-[10px] font-bold text-slate-400 font-heading uppercase tracking-wider px-2 flex items-center gap-1">
-                        <Crosshair className="w-3 h-3 text-amber-400" /> Weapons
-                      </div>
-                      <div className="space-y-0.5">
-                        {suggestions.weapons.map((w) => {
-                          const tierInfo = getTierInfo(w.tierTypeName);
-                          const damageInfo = getDamageInfo(w.damageType);
-                          return (
-                            <div
-                              key={w.id}
-                              onClick={() => selectSuggestion('weapon', w)}
-                              className="flex items-center justify-between px-2.5 py-1.5 rounded-lg hover:bg-slate-800/80 cursor-pointer text-xs group"
-                            >
-                              <div className="flex items-center gap-2.5 min-w-0">
-                                <div className="w-7 h-7 rounded bg-black/60 border border-white/10 overflow-hidden flex-shrink-0">
-                                  {w.icon && <img src={w.icon} alt="" className="w-full h-full object-cover" />}
-                                </div>
-                                <div className="min-w-0">
-                                  <span className="font-bold text-slate-200 group-hover:text-amber-300 transition-colors truncate block">
-                                    {w.name}
-                                  </span>
-                                  <span className="text-[10px] text-slate-400">
-                                    <span className={damageInfo.text}>{w.damageType}</span> • {w.weaponType}
-                                  </span>
-                                </div>
-                              </div>
-                              {w.sourceString && (
-                                <span className="text-[10px] text-slate-500 font-mono truncate max-w-[140px] text-right">
-                                  {w.sourceString}
-                                </span>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Matching Archetypes */}
-                  {suggestions.archetypes?.length > 0 && (
-                    <div className="space-y-1 pt-1 border-t border-[#28354d]">
-                      <div className="text-[10px] font-bold text-amber-400 font-heading uppercase tracking-wider px-2 flex items-center gap-1">
-                        <Tag className="w-3 h-3 text-amber-400" /> Archetypes & Frames
-                      </div>
-                      <div className="flex flex-wrap gap-1 px-1">
-                        {suggestions.archetypes.map((arch) => (
-                          <button
-                            key={arch}
-                            onClick={() => selectSuggestion('archetype', arch)}
-                            className="px-2 py-1 rounded bg-[#0b0e14] hover:bg-amber-500/20 text-slate-300 hover:text-amber-300 border border-[#20293a] text-xs font-mono transition-colors"
-                          >
-                            {arch}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Matching Sources / Activities */}
-                  {suggestions.sources?.length > 0 && (
-                    <div className="space-y-1 pt-1 border-t border-[#28354d]">
-                      <div className="text-[10px] font-bold text-sky-400 font-heading uppercase tracking-wider px-2 flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-sky-400" /> Sources & Activities
-                      </div>
-                      <div className="flex flex-wrap gap-1 px-1">
-                        {suggestions.sources.map((src) => (
-                          <button
-                            key={src}
-                            onClick={() => selectSuggestion('source', src)}
-                            className="px-2 py-1 rounded bg-[#0b0e14] hover:bg-sky-500/20 text-slate-300 hover:text-sky-300 border border-[#20293a] text-xs font-mono transition-colors"
-                          >
-                            {src}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Matching Elements */}
-                  {suggestions.damageTypes?.length > 0 && (
-                    <div className="space-y-1 pt-1 border-t border-[#28354d]">
-                      <div className="text-[10px] font-bold text-sky-400 font-heading uppercase tracking-wider px-2 flex items-center gap-1">
-                        <Sparkles className="w-3 h-3 text-sky-400" /> Elements
-                      </div>
-                      <div className="flex flex-wrap gap-1 px-1">
-                        {suggestions.damageTypes.map((dt) => {
-                          const damageInfo = getDamageInfo(dt);
-                          return (
-                            <button
-                              key={dt}
-                              onClick={() => selectSuggestion('damageType', dt)}
-                              className={`px-2 py-1 rounded bg-[#0b0e14] hover:bg-slate-800 border border-[#20293a] text-xs font-mono transition-colors ${damageInfo.text}`}
-                            >
-                              {dt}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Matching Weapon Types */}
-                  {suggestions.weaponTypes?.length > 0 && (
-                    <div className="space-y-1 pt-1 border-t border-[#28354d]">
-                      <div className="text-[10px] font-bold text-purple-400 font-heading uppercase tracking-wider px-2 flex items-center gap-1">
-                        <Crosshair className="w-3 h-3 text-purple-400" /> Weapon Types
-                      </div>
-                      <div className="flex flex-wrap gap-1 px-1">
-                        {suggestions.weaponTypes.map((wt) => (
-                          <button
-                            key={wt}
-                            onClick={() => selectSuggestion('weaponType', wt)}
-                            className="px-2 py-1 rounded bg-[#0b0e14] hover:bg-purple-500/20 text-slate-300 hover:text-purple-300 border border-[#20293a] text-xs font-mono transition-colors"
-                          >
-                            {wt}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                </div>
-              )}
-            </div>
+            {/* Autofill Search Bar (Name, Archetype, Source, Element) */}
+            <SearchField
+              className="flex-1"
+              value={search}
+              onChange={(next) => { setSearch(next); setPage(1); }}
+              placeholder="Search name, type, archetype or source..."
+              groups={searchGroups}
+            />
 
             {/* Interactive Perk Dropdown */}
             <div className="relative flex-1" ref={perkContainerRef}>
@@ -577,33 +482,8 @@ export default function WeaponFinder({
             </div>
           )}
 
-          {/* Filters added from the search bar. Without these the selections
-              made in the dropdown would apply invisibly. */}
-          {activeSearchFilters.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[#20293a]/60">
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider font-heading">
-                Filters:
-              </span>
-              {activeSearchFilters.map(({ key, label, value, remove, tone }) => (
-                <span
-                  key={key}
-                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium ${tone}`}
-                >
-                  <span className="opacity-60 font-mono text-[10px] uppercase">{label}</span>
-                  <span>{value}</span>
-                  <button onClick={remove} className="hover:text-white ml-0.5" aria-label={`Remove ${value} filter`}>
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </span>
-              ))}
-              <button
-                onClick={clearSearchFilters}
-                className="text-xs text-slate-500 hover:text-slate-300 underline font-mono ml-1"
-              >
-                Clear
-              </button>
-            </div>
-          )}
+          {/* Filters picked from the search bar, and the way back out of them. */}
+          <FilterChips filters={activeSearchFilters} onClear={clearSearchFilters} />
 
         </div>
       </div>

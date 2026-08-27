@@ -11,11 +11,13 @@ import {
   Crown,
   Award,
   Swords,
-  Flame
+  Flame,
+  MapPin
 } from 'lucide-react';
 import { getTierInfo, getSourceCategoryBadge } from '../utils/destiny-helpers';
-import { searchArmorClient, getArmorSourceCategories } from '../utils/client-manifest';
+import { getArmorSuggestionsClient, searchArmorClient, getArmorSourceCategories } from '../utils/client-manifest';
 import LongPressable from './LongPressable';
+import SearchField, { FilterChips, CHIP_TONES } from './SearchField';
 
 export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
   const [armorList, setArmorList] = useState([]);
@@ -31,6 +33,8 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
   const [selectedTiers, setSelectedTiers] = useState([]); // All or Exotic/Legendary
   const [selectedSetCategory, setSelectedSetCategory] = useState('All');
   const [artificeOnly, setArtificeOnly] = useState(false);
+  const [selectedSetName, setSelectedSetName] = useState('All');
+  const [suggestions, setSuggestions] = useState({ armor: [], sets: [], sources: [], slots: [], classes: [], tiers: [] });
 
   // Categories come from the manifest rather than a hardcoded list: the old
   // list named sets that no source category ever matched, so every option
@@ -45,7 +49,7 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
 
   useEffect(() => {
     fetchArmor();
-  }, [search, selectedClasses, selectedSlots, selectedTiers, selectedSetCategory, artificeOnly, page]);
+  }, [search, selectedClasses, selectedSlots, selectedTiers, selectedSetCategory, selectedSetName, artificeOnly, page]);
 
   const fetchArmor = async () => {
     setLoading(true);
@@ -56,6 +60,7 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
         slot: selectedSlots.length === 1 ? selectedSlots[0] : 'All',
         tier: selectedTiers.length === 1 ? selectedTiers[0] : 'All',
         sourceCategory: selectedSetCategory,
+        setName: selectedSetName,
         artificeOnly,
         page,
         limit: 48
@@ -69,6 +74,135 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
     } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    setSuggestions(search.trim()
+      ? getArmorSuggestionsClient(search.trim())
+      : { armor: [], sets: [], sources: [], slots: [], classes: [], tiers: [] });
+  }, [search]);
+
+  /** Add a filter and empty the box, the way the weapons screen does. */
+  const pickFilter = (apply) => {
+    apply();
+    setSearch('');
+    setPage(1);
+  };
+
+  const addUnique = (setter, list, value) => {
+    if (!list.includes(value)) setter([...list, value]);
+  };
+
+  const removeFrom = (setter, list, value) => {
+    setter(list.filter(item => item !== value));
+    setPage(1);
+  };
+
+  /** What the search bar can offer for whatever has been typed. */
+  const searchGroups = [
+    {
+      key: 'armor',
+      label: 'Armour',
+      icon: Shield,
+      tone: 'text-slate-400',
+      layout: 'rows',
+      items: (suggestions.armor || []).map(a => ({
+        value: a.hash || a.id,
+        label: a.name,
+        detail: [a.classType, a.armorSlot].filter(Boolean).join(' • '),
+        icon: a.icon,
+        onSelect: () => { setSearch(a.name); setPage(1); }
+      }))
+    },
+    {
+      key: 'sets',
+      label: 'Armour Sets',
+      icon: Layers,
+      tone: 'text-teal-400',
+      items: (suggestions.sets || []).map(name => ({
+        value: name, label: name, onSelect: () => pickFilter(() => setSelectedSetName(name))
+      }))
+    },
+    {
+      key: 'classes',
+      label: 'Guardians',
+      icon: Shield,
+      tone: 'text-rose-400',
+      items: (suggestions.classes || []).map(cls => ({
+        value: cls,
+        label: cls,
+        onSelect: () => pickFilter(() => addUnique(setSelectedClasses, selectedClasses, cls))
+      }))
+    },
+    {
+      key: 'slots',
+      label: 'Slots',
+      icon: Layers,
+      tone: 'text-emerald-400',
+      items: (suggestions.slots || []).map(slot => ({
+        value: slot,
+        label: slot,
+        onSelect: () => pickFilter(() => addUnique(setSelectedSlots, selectedSlots, slot))
+      }))
+    },
+    {
+      key: 'tiers',
+      label: 'Rarity',
+      icon: Crown,
+      tone: 'text-fuchsia-400',
+      items: (suggestions.tiers || []).map(tier => ({
+        value: tier,
+        label: tier,
+        onSelect: () => pickFilter(() => addUnique(setSelectedTiers, selectedTiers, tier))
+      }))
+    },
+    {
+      key: 'sources',
+      label: 'Sources & Activities',
+      icon: MapPin,
+      tone: 'text-sky-400',
+      items: (suggestions.sources || []).map(src => ({
+        value: src, label: src, onSelect: () => pickFilter(() => setSelectedSetCategory(src))
+      }))
+    }
+  ];
+
+  /** Everything the grid is currently narrowed by. */
+  const activeFilters = [
+    ...selectedClasses.map(v => ({
+      key: `cls:${v}`, label: 'Guardian', value: v, tone: CHIP_TONES.guardian,
+      remove: () => removeFrom(setSelectedClasses, selectedClasses, v)
+    })),
+    ...selectedSlots.map(v => ({
+      key: `slot:${v}`, label: 'Slot', value: v, tone: CHIP_TONES.slot,
+      remove: () => removeFrom(setSelectedSlots, selectedSlots, v)
+    })),
+    ...selectedTiers.map(v => ({
+      key: `tier:${v}`, label: 'Rarity', value: v, tone: CHIP_TONES.tier,
+      remove: () => removeFrom(setSelectedTiers, selectedTiers, v)
+    })),
+    ...(selectedSetName !== 'All' ? [{
+      key: `set:${selectedSetName}`, label: 'Set', value: selectedSetName, tone: CHIP_TONES.set,
+      remove: () => { setSelectedSetName('All'); setPage(1); }
+    }] : []),
+    ...(selectedSetCategory !== 'All' ? [{
+      key: `src:${selectedSetCategory}`, label: 'Source', value: selectedSetCategory, tone: CHIP_TONES.source,
+      remove: () => { setSelectedSetCategory('All'); setPage(1); }
+    }] : []),
+    ...(artificeOnly ? [{
+      key: 'artifice', label: 'Only', value: 'Artifice', tone: CHIP_TONES.type,
+      remove: () => { setArtificeOnly(false); setPage(1); }
+    }] : [])
+  ];
+
+  const clearFilters = () => {
+    setSelectedClasses([]);
+    setSelectedSlots([]);
+    setSelectedTiers([]);
+    setSelectedSetName('All');
+    setSelectedSetCategory('All');
+    setArtificeOnly(false);
+    setPage(1);
   };
 
   const toggleArrayFilter = (setter, currentList, value) => {
@@ -96,24 +230,14 @@ export default function ArmorFinder({ onSelectArmor, onOpenInfo }) {
       <div className="bg-[#121722] border border-[#20293a] rounded-2xl p-5 shadow-xl space-y-4">
         
         {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search armour by name, set, source or exotic perk..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="w-full pl-10 pr-4 py-2.5 bg-[#0b0e14] border border-[#20293a] rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400/40 font-sans"
-          />
-          {search && (
-            <button 
-              onClick={() => setSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        <SearchField
+          value={search}
+          onChange={(next) => { setSearch(next); setPage(1); }}
+          placeholder="Search armour by name, set, slot or source..."
+          groups={searchGroups}
+        />
+
+        <FilterChips filters={activeFilters} onClear={clearFilters} />
 
         {/* Set Categories Row */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none pt-1">

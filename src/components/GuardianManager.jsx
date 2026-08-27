@@ -53,6 +53,7 @@ import LongPressable from './LongPressable';
 import PerkIcon from './PerkIcon';
 import ArmourOptimizer from './ArmourOptimizer';
 import SlotPickerModal from './SlotPickerModal';
+import SearchField, { FilterChips, CHIP_TONES } from './SearchField';
 import SubclassPanel from './SubclassPanel';
 import LoadoutsPanel from './LoadoutsPanel';
 
@@ -1494,6 +1495,114 @@ export default function GuardianManager({
   const vaultWeapons = (profileData?.vault || []).filter(item => item.isWeapon);
   const vaultArmour = (profileData?.vault || []).filter(item => item.isArmor);
 
+  /**
+   * What the vault search can offer, taken from the vault itself rather than a
+   * fixed list: it can only suggest something that is in there to find.
+   */
+  const vaultSuggestions = (() => {
+    const query = vaultSearch.trim().toLowerCase();
+    const empty = { items: [], types: [], elements: [], slots: [], perks: [] };
+    if (!query) return empty;
+
+    const matches = (value) => value && String(value).toLowerCase().includes(query);
+    const types = new Set();
+    const elements = new Set();
+    const slots = new Set();
+    const perks = new Set();
+    const named = [];
+
+    // Only the half of the vault on screen -- suggesting a Hand Cannon while
+    // the Armour tab is showing would offer a search that finds nothing.
+    const seenNames = new Set();
+
+    (vaultFilter === 'armor' ? vaultArmour : vaultWeapons).forEach(item => {
+      // One row per name -- a vault holds several rolls of the same gun.
+      if (matches(item.name) && named.length < 5 && !seenNames.has(item.name)) {
+        seenNames.add(item.name);
+        named.push(item);
+      }
+      if (matches(item.weaponType)) types.add(item.weaponType);
+      if (matches(item.damageType)) elements.add(item.damageType);
+      if (matches(item.armorSlot)) slots.add(item.armorSlot);
+      (item.perks || []).forEach(perk => {
+        const name = typeof perk === 'string' ? perk : perk?.name;
+        if (matches(name) && perks.size < 6) perks.add(name);
+      });
+    });
+
+    return {
+      items: named,
+      types: [...types].slice(0, 5),
+      elements: [...elements].slice(0, 5),
+      slots: [...slots].slice(0, 5),
+      perks: [...perks]
+    };
+  })();
+
+  const vaultSearchGroups = [
+    {
+      key: 'items',
+      label: 'In your vault',
+      icon: Box,
+      tone: 'text-slate-400',
+      layout: 'rows',
+      items: vaultSuggestions.items.map(item => ({
+        value: item.itemInstanceId || item.itemHash,
+        label: item.name,
+        detail: [item.damageType, item.itemTypeDisplayName].filter(Boolean).join(' • '),
+        icon: item.icon,
+        onSelect: () => setVaultSearch(item.name)
+      }))
+    },
+    {
+      key: 'elements',
+      label: 'Elements',
+      icon: Sparkles,
+      tone: 'text-orange-400',
+      items: vaultSuggestions.elements.map(el => ({
+        value: el, label: el, tone: getDamageInfo(el).text, onSelect: () => setVaultSearch(el)
+      }))
+    },
+    {
+      key: 'types',
+      label: 'Weapon Types',
+      icon: Crosshair,
+      tone: 'text-purple-400',
+      items: vaultSuggestions.types.map(type => ({
+        value: type, label: type, onSelect: () => setVaultSearch(type)
+      }))
+    },
+    {
+      key: 'slots',
+      label: 'Armour Slots',
+      icon: Shield,
+      tone: 'text-emerald-400',
+      items: vaultSuggestions.slots.map(slot => ({
+        value: slot, label: slot, onSelect: () => setVaultSearch(slot)
+      }))
+    },
+    {
+      key: 'perks',
+      label: 'Perks',
+      icon: Sparkles,
+      tone: 'text-amber-400',
+      items: vaultSuggestions.perks.map(perk => ({
+        value: perk, label: perk, onSelect: () => setVaultSearch(perk)
+      }))
+    }
+  ];
+
+  /** What the vault grid is narrowed by, in the app's usual chips. */
+  const vaultFilters = vaultSearch.trim()
+    ? [{
+      key: 'query',
+      label: 'Search',
+      value: vaultSearch.trim(),
+      tone: CHIP_TONES.source,
+      remove: () => setVaultSearch('')
+    }]
+    : [];
+
   const filteredVaultItems = (vaultFilter === 'armor' ? vaultArmour : vaultWeapons).filter(item => {
     if (vaultSearch.trim()) {
       const q = vaultSearch.toLowerCase().trim();
@@ -2094,16 +2203,13 @@ export default function GuardianManager({
           
           {/* Vault Search & Filter */}
           <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between bg-[#121722] p-4 rounded-xl border border-[#20293a]">
-            <div className="relative flex-1">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search items, perks, weapon types in Vault..."
-                value={vaultSearch}
-                onChange={(e) => setVaultSearch(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-[#0b0e14] border border-[#20293a] rounded-lg text-sm text-slate-200 focus:outline-none focus:border-amber-500"
-              />
-            </div>
+            <SearchField
+              className="flex-1"
+              value={vaultSearch}
+              onChange={setVaultSearch}
+              placeholder="Search your vault by name, type, element or perk..."
+              groups={vaultSearchGroups}
+            />
 
             <div className="flex items-center gap-2">
               <button
@@ -2120,6 +2226,8 @@ export default function GuardianManager({
               </button>
             </div>
           </div>
+
+          <FilterChips filters={vaultFilters} onClear={() => setVaultSearch('')} />
 
           {/* Vault Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

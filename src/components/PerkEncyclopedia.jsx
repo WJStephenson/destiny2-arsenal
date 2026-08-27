@@ -9,7 +9,8 @@ import {
   Filter
 } from 'lucide-react';
 import { getDamageInfo, getTierInfo } from '../utils/destiny-helpers';
-import { searchPerksClient } from '../utils/client-manifest';
+import { getPerkSuggestionsClient, searchPerksClient } from '../utils/client-manifest';
+import SearchField, { FilterChips, CHIP_TONES } from './SearchField';
 
 export default function PerkEncyclopedia({ onSelectWeapon }) {
   const [perks, setPerks] = useState([]);
@@ -21,12 +22,57 @@ export default function PerkEncyclopedia({ onSelectWeapon }) {
   // Filters
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('Trait');
+  const [suggestions, setSuggestions] = useState({ perks: [], categories: [] });
   const [selectedPerkDetail, setSelectedPerkDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
   useEffect(() => {
     fetchPerks();
   }, [search, category, page]);
+
+  useEffect(() => {
+    setSuggestions(search.trim() ? getPerkSuggestionsClient(search.trim()) : { perks: [], categories: [] });
+  }, [search]);
+
+  /** What the search bar can offer for whatever has been typed. */
+  const searchGroups = [
+    {
+      key: 'perks',
+      label: 'Perks & Traits',
+      icon: Sparkles,
+      tone: 'text-amber-400',
+      layout: 'rows',
+      items: (suggestions.perks || []).map(p => ({
+        value: p.hash || p.name,
+        label: p.name,
+        detail: p.category || p.itemTypeDisplayName,
+        icon: p.icon,
+        onSelect: () => { setSearch(p.name); setPage(1); }
+      }))
+    },
+    {
+      key: 'categories',
+      label: 'Categories',
+      icon: Filter,
+      tone: 'text-sky-400',
+      items: (suggestions.categories || []).map(cat => ({
+        value: cat,
+        label: cat,
+        onSelect: () => { setCategory(cat); setSearch(''); setPage(1); }
+      }))
+    }
+  ];
+
+  /** The one filter this screen has, shown the way every other screen shows one. */
+  const activeFilters = category !== 'All'
+    ? [{
+      key: `cat:${category}`,
+      label: 'Category',
+      value: category,
+      tone: CHIP_TONES.category,
+      remove: () => { setCategory('All'); setPage(1); }
+    }]
+    : [];
 
   const fetchPerks = async () => {
     setLoading(true);
@@ -77,24 +123,15 @@ export default function PerkEncyclopedia({ onSelectWeapon }) {
       <div className="bg-[#121722] border border-[#20293a] rounded-xl p-5 shadow-xl space-y-4">
         
         {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search all perks and traits (e.g. Incandescent, Voltshot, Bait and Switch, Kinetic Tremors)..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-            className="w-full pl-10 pr-4 py-2.5 bg-[#0b0e14] border border-[#20293a] rounded-lg text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500/60 focus:ring-1 focus:ring-sky-500/40"
-          />
-          {search && (
-            <button 
-              onClick={() => setSearch('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
+        <SearchField
+          value={search}
+          onChange={(next) => { setSearch(next); setPage(1); }}
+          placeholder="Search perks and traits..."
+          groups={searchGroups}
+          accent="sky"
+        />
+
+        <FilterChips filters={activeFilters} onClear={() => { setCategory('All'); setPage(1); }} />
 
         {/* Category Pills */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">

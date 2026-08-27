@@ -240,6 +240,11 @@ export async function searchArmorClient(filters = {}) {
       (a.sourceCategory && a.sourceCategory.toLowerCase().includes(q)) ||
       (a.setIntrinsicPerk && a.setIntrinsicPerk.toLowerCase().includes(q)) ||
       (a.sourceString && a.sourceString.toLowerCase().includes(q)) ||
+      // The slot, the class and the rarity are all things a search bar is
+      // asked for by name -- 'helmet', 'warlock', 'exotic'.
+      (a.armorSlot && a.armorSlot.toLowerCase().includes(q)) ||
+      (a.classType && a.classType.toLowerCase().includes(q)) ||
+      (a.tierTypeName && a.tierTypeName.toLowerCase().includes(q)) ||
       (a.exoticPerk?.name && a.exoticPerk.name.toLowerCase().includes(q))
     );
   }
@@ -368,6 +373,63 @@ export function getClientItemByName(name) {
   if (armorByName.has(clean)) return armorByName.get(clean);
   if (perksByName.has(clean)) return perksByName.get(clean);
   return null;
+}
+
+/**
+ * What an armour search can be narrowed to, drawn from the armour that exists.
+ *
+ * The same shape the weapon suggestions take, so the two screens' search bars
+ * behave alike: a few pieces by name, then the properties worth filtering on.
+ */
+export function getArmorSuggestionsClient(query) {
+  const empty = { armor: [], sets: [], sources: [], slots: [], classes: [], tiers: [] };
+  if (!query || !query.trim() || !cachedArmor) return empty;
+
+  const q = query.trim().toLowerCase();
+  const matches = (value) => value && String(value).toLowerCase().includes(q);
+
+  const sets = new Set();
+  const sources = new Set();
+  const slots = new Set();
+  const classes = new Set();
+  const tiers = new Set();
+
+  cachedArmor.forEach(a => {
+    if (matches(a.setName)) sets.add(a.setName);
+    if (matches(a.sourceCategory)) sources.add(a.sourceCategory);
+    if (matches(a.armorSlot)) slots.add(a.armorSlot);
+    if (matches(a.classType) && a.classType !== 'Any') classes.add(a.classType);
+    if (matches(a.tierTypeName)) tiers.add(a.tierTypeName);
+  });
+
+  return {
+    armor: cachedArmor.filter(a => matches(a.name)).slice(0, 5),
+    sets: Array.from(sets).slice(0, 6),
+    sources: Array.from(sources).slice(0, 6),
+    slots: Array.from(slots).slice(0, 5),
+    classes: Array.from(classes).slice(0, 3),
+    tiers: Array.from(tiers).slice(0, 3)
+  };
+}
+
+/**
+ * What a perk search can be narrowed to: the perks themselves, and the
+ * categories they fall into.
+ */
+export function getPerkSuggestionsClient(query) {
+  if (!query || !query.trim() || !cachedPerks) return { perks: [], categories: [] };
+
+  const q = query.trim().toLowerCase();
+  const categories = new Set();
+
+  cachedPerks.forEach(p => {
+    if (p.category && p.category.toLowerCase().includes(q)) categories.add(p.category);
+  });
+
+  return {
+    perks: cachedPerks.filter(p => p.name?.toLowerCase().includes(q)).slice(0, 6),
+    categories: Array.from(categories).slice(0, 5)
+  };
 }
 
 /**
