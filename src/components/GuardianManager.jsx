@@ -50,6 +50,7 @@ import { buildSubclassModel, applyPlugToModel, insertPlug } from '../utils/subcl
 import useSwipeNavigation from '../utils/useSwipeNavigation';
 import useCenteredChip from '../utils/useCenteredChip';
 import LongPressable from './LongPressable';
+import PerkIcon from './PerkIcon';
 import ArmourOptimizer from './ArmourOptimizer';
 import SlotPickerModal from './SlotPickerModal';
 import SubclassPanel from './SubclassPanel';
@@ -137,7 +138,9 @@ export default function GuardianManager({
   const [actionLoading, setActionLoading] = useState(null);
   const [statusMessage, setStatusMessage] = useState(null);
   const [vaultSearch, setVaultSearch] = useState('');
-  const [vaultFilter, setVaultFilter] = useState('all'); // 'all' | 'weapons' | 'armor'
+  // The vault is only ever browsed as gear, so there is no 'everything'
+  // setting -- consumables and materials are not what this screen is for.
+  const [vaultFilter, setVaultFilter] = useState('weapons'); // 'weapons' | 'armor'
   const [vaultPickerSlot, setVaultPickerSlot] = useState(null); // { key, title, bag, equipped }
 
   /**
@@ -1488,9 +1491,10 @@ export default function GuardianManager({
     return slots.find(s => s.key === key) || vaultPickerSlot;
   })();
 
-  const filteredVaultItems = (profileData?.vault || []).filter(item => {
-    if (vaultFilter === 'weapons' && !item.isWeapon) return false;
-    if (vaultFilter === 'armor' && !item.isArmor) return false;
+  const vaultWeapons = (profileData?.vault || []).filter(item => item.isWeapon);
+  const vaultArmour = (profileData?.vault || []).filter(item => item.isArmor);
+
+  const filteredVaultItems = (vaultFilter === 'armor' ? vaultArmour : vaultWeapons).filter(item => {
     if (vaultSearch.trim()) {
       const q = vaultSearch.toLowerCase().trim();
       return item.name.toLowerCase().includes(q) || 
@@ -2094,22 +2098,16 @@ export default function GuardianManager({
 
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setVaultFilter('all')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium ${vaultFilter === 'all' ? 'bg-amber-500 text-black font-bold' : 'bg-slate-800 text-slate-300'}`}
-              >
-                All ({profileData?.vault?.length || 0})
-              </button>
-              <button
                 onClick={() => setVaultFilter('weapons')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium ${vaultFilter === 'weapons' ? 'bg-amber-500 text-black font-bold' : 'bg-slate-800 text-slate-300'}`}
               >
-                Weapons
+                Weapons ({vaultWeapons.length})
               </button>
               <button
                 onClick={() => setVaultFilter('armor')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium ${vaultFilter === 'armor' ? 'bg-amber-500 text-black font-bold' : 'bg-slate-800 text-slate-300'}`}
               >
-                Armour
+                Armour ({vaultArmour.length})
               </button>
             </div>
           </div>
@@ -2156,22 +2154,48 @@ export default function GuardianManager({
                     </div>
                   </div>
 
-                  {/* Active Perks */}
+                  {/* What the card says about the roll: a weapon is defined by
+                      the perks it came out with, a piece of armour by the stats
+                      it rolled -- its plugs are mods, which say nothing about
+                      whether the piece is worth pulling. */}
                   <div className="p-3 space-y-2 flex-1">
-                    {item.perks?.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {item.perks.map((p, pIdx) => {
-                          const pObj = typeof p === 'object' ? p : { name: p };
-                          return (
-                            <span
-                              key={pIdx}
-                              className="px-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
-                            >
-                              {pObj.name}
-                            </span>
-                          );
-                        })}
-                      </div>
+                    {item.isArmor ? (
+                      item.armorStats ? (
+                        <div className="space-y-1.5">
+                          <div className="grid grid-cols-6 gap-1 text-center font-mono">
+                            {STAT_META.map(st => (
+                              <div key={st.key} className="space-y-0.5" title={st.label}>
+                                <div className={`text-[9px] font-semibold ${st.text}`}>{st.short}</div>
+                                <div className="text-xs font-bold text-white tabular-nums">{item.armorStats[st.key] ?? 0}</div>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pt-1 border-t border-[#20293a]">
+                            <span>TOTAL</span>
+                            <span className="text-white font-bold tabular-nums">{item.armorStats.total ?? 0}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] font-mono text-slate-500">Stats unavailable</div>
+                      )
+                    ) : (
+                      item.perks?.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {item.perks.map((p, pIdx) => {
+                            const pObj = typeof p === 'object' ? p : { name: p };
+                            return (
+                              <span
+                                key={pIdx}
+                                title={pObj.name}
+                                className="inline-flex items-center gap-1 pl-1 pr-2 py-0.5 rounded bg-[#0b0e14] text-slate-300 text-[11px] font-mono border border-slate-700/60"
+                              >
+                                <PerkIcon perk={pObj} className="w-4 h-4" />
+                                <span className="truncate max-w-[130px]">{pObj.name}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )
                     )}
                   </div>
 
